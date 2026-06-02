@@ -1,0 +1,103 @@
+simulation:
+  f_cable: 50.0        # Cable force in Newtons (~11 lbs)
+  n_rom_points: 50     # Points in range-of-motion sweep
+
+output:
+  dpi: 150
+  format: png
+
+anatomy:
+  segments:
+    upper_arm_length: 0.30   # shoulder to elbow (m)
+    forearm_length: 0.25     # elbow to wrist (m)
+    hand_length: 0.10        # wrist to mid-palm (m)
+    hand_grip_center: 0.05   # mid-palm from wrist (m)
+
+  muscles:
+    biceps:
+      insertion: 0.04
+      fmax: 800
+      ma_base: 0.040
+      ma_var: 0.50
+    brachialis:
+      insertion: 0.03
+      fmax: 1000
+      ma_base: 0.030
+      ma_var: 0.30
+    brachioradialis:
+      insertion: 0.20
+      fmax: 200
+      ma_base: 0.050
+      ma_var: 0.20
+    forearm_flexors:
+      insertion: 0.05
+      fmax: 600
+      ma_base: 0.025
+      ma_var: 0.10
+    deltoid_lateral:
+      insertion: 0.15
+      fmax: 1200
+      ma_base: 0.020
+      ma_var: 2.00
+    deltoid_anterior:
+      insertion: 0.15
+      fmax: 1200
+      ma_base: 0.018
+      ma_var: 1.50
+    supraspinatus:
+      insertion: 0.02
+      fmax: 400
+      ma_base: 0.010
+      ma_var: 0.80
+
+  joint_ref_areas:
+    wrist: 0.0006      # m² (~6 cm²)
+    elbow: 0.0012      # m² (~12 cm²)
+    shoulder: 0.0020   # m² (~20 cm²)
+
+device:
+  pad_from_wrist: 0.02          # pad sits 2 cm above wrist joint (m)
+  grip_force_fraction: 0.05     # 5% of cable load for stabilization
+
+exercises:
+  standard_curl:
+    name: "Standard Curl"
+    joint: elbow
+    angle_range_deg: [10, 150]
+    muscle_weights:
+      biceps: 0.45
+      brachialis: 0.40
+      brachioradialis: 0.15
+    muscles_involved:
+      - biceps
+      - brachialis
+      - brachioradialis
+      - forearm_flexors
+
+  reverse_curl:
+    name: "Reverse Curl"
+    joint: elbow
+    angle_range_deg: [10, 150]
+    muscle_weights:
+      biceps: 0.25
+      brachialis: 0.35
+      brachioradialis: 0.40
+    muscles_involved:
+      - biceps
+      - brachialis
+      - brachioradialis
+      - forearm_flexors
+
+  lateral_raise:
+    name: "Lateral Raise"
+    joint: shoulder
+    angle_range_deg: [5, 90]
+    muscle_weights:
+      deltoid_lateral: 0.60
+      deltoid_anterior: 0.25
+      supraspinatus: 0.15
+    muscles_involved:
+      - deltoid_lateral
+      - deltoid_anterior
+      - supraspinatus
+      - forearm_flexors

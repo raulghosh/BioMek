@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BioMek — Biomechanical Simulation</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">💪</div>
+    <div>
+      <div class="logo-text">BioMek</div>
+      <div class="logo-sub">Forearm Device Simulator</div>
+    </div>
+  </div>
+  <div class="tagline">
+    <div>Live biomechanical comparison</div>
+    <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;margin-top:3px;">
+      <div class="status-dot"></div>
+      <span id="status-text" style="font-size:11px;color:var(--text-muted)">Ready</span>
+    </div>
+  </div>
+</header>
+
+<!-- ── Body layout ─────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <aside class="sidebar">
+
+    <!-- Cable load -->
+    <div class="panel">
+      <div class="panel-header">⚙ Simulation Settings</div>
+      <div class="panel-body">
+        <div class="control-row">
+          <div class="control-label">
+            Cable Load
+            <span id="lbl-fcable">11 lbs (5.0 kg)</span>
+          </div>
+          <input type="range" id="sl-fcable" min="2" max="45" step="1" value="11">
+        </div>
+      </div>
+    </div>
+
+    <!-- Device geometry -->
+    <div class="panel">
+      <div class="panel-header">🔧 Device Geometry</div>
+      <div class="panel-body">
+        <div class="control-row">
+          <div class="control-label">
+            Pad Distance from Wrist
+            <span id="lbl-pad">2 cm</span>
+          </div>
+          <input type="range" id="sl-pad" min="1" max="8" step="0.5" value="2">
+        </div>
+        <div class="control-row">
+          <div class="control-label">
+            Grip Force Fraction
+            <span id="lbl-grip">5%</span>
+          </div>
+          <input type="range" id="sl-grip" min="1" max="30" step="1" value="5">
+          <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">
+            How much of cable load reaches the grip (BioMek device)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Exercise selector + muscle weights -->
+    <div class="panel">
+      <div class="panel-header">🏋 Exercise Parameters</div>
+      <div class="panel-body">
+        <div class="exercise-tabs" id="ex-tabs"></div>
+        <div id="muscle-weight-section" class="muscle-weights"></div>
+        <div class="warn-text" id="weight-warn">⚠ Weights should sum to 100%</div>
+      </div>
+    </div>
+
+    <!-- Anatomy reference -->
+    <div class="panel">
+      <div class="panel-header">🦴 Anatomy Reference</div>
+      <div class="panel-body" style="gap:8px;">
+        <div class="control-row">
+          <div class="control-label">Forearm Length <span id="lbl-forearm">25 cm</span></div>
+          <input type="range" id="sl-forearm" min="20" max="35" step="0.5" value="25" disabled style="opacity:0.4;cursor:default;">
+        </div>
+        <div style="font-size:10px;color:var(--text-muted)">
+          Anatomy values are locked to validated defaults. Contact us for custom modeling.
+        </div>
+      </div>
+    </div>
+
+    <!-- Reset -->
+    <button id="btn-reset" style="
+      background:var(--bg3);border:1px solid var(--border);color:var(--text-muted);
+      border-radius:var(--radius);padding:9px;cursor:pointer;font-size:12px;
+      transition:all 0.15s;width:100%;">
+      ↺ Reset to defaults
+    </button>
+
+  </aside>
+
+  <!-- ── Main content ──────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- Hero metrics -->
+    <div class="metrics-row">
+      <div class="metric-card">
+        <div class="metric-label">Wrist Stress Reduction</div>
+        <div class="metric-value green" id="m-wrist">—</div>
+        <div class="metric-sub">vs traditional handle</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Grip Demand Reduction</div>
+        <div class="metric-value green" id="m-grip">—</div>
+        <div class="metric-sub">forearm flexor activation</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Elbow Stress Reduction</div>
+        <div class="metric-value gold" id="m-elbow">—</div>
+        <div class="metric-sub">joint reaction force</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Equivalent Cable Weight</div>
+        <div class="metric-value blue" id="m-equiv">—</div>
+        <div class="metric-sub">to match same muscle stimulus</div>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="legend-row">
+      <div class="legend-item">
+        <div class="legend-swatch biomek"></div>
+        <span style="font-weight:600;color:var(--green-lit)">BioMek Device</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch trad"></div>
+        <span style="color:#aaa">Traditional Cable Handle</span>
+      </div>
+      <div class="spacer"></div>
+      <span class="badge green">Live simulation — adjust any parameter</span>
+    </div>
+
+    <!-- Exercise tab strip -->
+    <div class="ex-strip" id="main-ex-strip"></div>
+
+    <!-- Charts per exercise (shown/hidden by tab) -->
+    <div id="exercise-panels"></div>
+
+  </main>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
