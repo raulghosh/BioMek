@@ -146,6 +146,38 @@
       <span class="badge green">Live simulation — adjust any parameter</span>
     </div>
 
+    <!-- Motion simulation -->
+    <div class="chart-card" style="padding:18px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div class="chart-title">
+          <div class="dot green"></div>
+          Motion Simulation
+          <span style="font-size:10px;font-weight:400;color:var(--text-muted);margin-left:6px;">
+            joint stress: <span style="color:var(--green-lit)">●</span> low &nbsp;
+            <span style="color:var(--gold)">●</span> moderate &nbsp;
+            <span style="color:var(--red)">●</span> high
+          </span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button id="btn-anim-toggle" style="
+            background:var(--bg3);border:1px solid var(--border);color:var(--text-muted);
+            border-radius:20px;padding:4px 14px;cursor:pointer;font-size:11px;
+            transition:all 0.15s;">⏸ Pause</button>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <canvas id="anim-trad"   width="300" height="340"
+            style="border-radius:8px;border:1px solid var(--border);width:100%;max-width:340px;"></canvas>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+          <canvas id="anim-biomek" width="300" height="340"
+            style="border-radius:8px;border:1px solid #2ea04355;width:100%;max-width:340px;
+                   box-shadow:0 0 16px rgba(46,160,67,0.12);"></canvas>
+        </div>
+      </div>
+    </div>
+
     <!-- Exercise tab strip -->
     <div class="ex-strip" id="main-ex-strip"></div>
 
@@ -155,6 +187,7 @@
   </main>
 </div>
 
+<script src="/static/js/animation.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

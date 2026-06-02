@@ -236,6 +236,10 @@ function switchMainTab(key) {
   });
   refreshSidebarTabs();
   renderMuscleWeights();
+  // Reset angle to range start for the new exercise and restart
+  _animAngle = state.exercises[key]?.angle_range_deg?.[0] ?? 10;
+  _animDir   = 1;
+  startAnimation();
 }
 
 // ── Chart helpers ─────────────────────────────────────────────
@@ -455,6 +459,7 @@ function renderResults(data) {
   // ── Update hero metrics (average across exercises) ─────────
   updateHeroMetrics(data);
   setLoading(false);
+  startAnimation();
 }
 
 function updateHeroMetrics(data) {
@@ -591,6 +596,19 @@ function wireSliders() {
     renderMuscleWeights();
     switchMainTab(activeExKey);
     simulate();
+  });
+
+  // Pause / resume animation
+  let _animPaused = false;
+  $("btn-anim-toggle").addEventListener("click", () => {
+    _animPaused = !_animPaused;
+    if (_animPaused) {
+      stopAnimation();
+      $("btn-anim-toggle").textContent = "▶ Resume";
+    } else {
+      startAnimation();
+      $("btn-anim-toggle").textContent = "⏸ Pause";
+    }
   });
 
   $("btn-reset").addEventListener("mouseenter", () => {
