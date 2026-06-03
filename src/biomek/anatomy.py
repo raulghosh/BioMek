@@ -22,6 +22,16 @@ SEGMENTS: dict         = _cfg["segments"]
 JOINT_REF_AREA: dict   = _cfg["joint_ref_areas"]
 GRIP_FMAX: float       = _cfg["grip_fmax"]
 
+# Epicondyle tendon cross-sectional areas (m²) — from anatomical cadaveric studies
+MEDIAL_EPICONDYLE_CSA:  float = _cfg["epicondyles"]["medial"]["tendon_csa_m2"]
+LATERAL_EPICONDYLE_CSA: float = _cfg["epicondyles"]["lateral"]["tendon_csa_m2"]
+
+# ECRB extensor co-contraction fraction relative to grip force, per grip orientation
+GRIP_PATTERN_EXTENSOR: dict = {
+    p: v["extensor_cocontraction"]
+    for p, v in _cfg["grip_patterns"].items()
+}
+
 FLEXORS   = ["BIClong", "BICshort", "BRA"]
 EXTENSORS = ["TRIlong", "TRIlat",   "TRImed"]
 ABDUCTORS = ["DELT_lat", "DELT_ant", "SUPSP"]

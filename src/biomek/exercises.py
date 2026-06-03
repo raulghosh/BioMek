@@ -16,6 +16,7 @@ class Exercise:
     moment_arm_fn: Callable          # elbow_moment_arms or shoulder_moment_arms
     muscle_db: dict                  # ELBOW_MUSCLES or SHOULDER_MUSCLES
     grip_fmax: float = 600.0
+    grip_pattern: str = "neutral"    # "supinated" | "pronated" | "neutral"
 
 
 def load_exercises(cfg: dict | None = None) -> list[Exercise]:
@@ -41,5 +42,6 @@ def load_exercises(cfg: dict | None = None) -> list[Exercise]:
             moment_arm_fn=moment_fn,
             muscle_db=muscle_db,
             grip_fmax=cfg.get("grip_fmax", 600.0),
+            grip_pattern=ex_cfg.get("grip_pattern", "neutral"),
         ))
     return exercises

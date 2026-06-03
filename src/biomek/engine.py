@@ -4,7 +4,9 @@ Minimizes sum(a_i²) subject to torque balance — same approach as biomek_sim.p
 """
 
 import numpy as np
-from .anatomy import JOINT_REF_AREA, GRIP_FMAX
+from .anatomy import (JOINT_REF_AREA, GRIP_FMAX,
+                       MEDIAL_EPICONDYLE_CSA, LATERAL_EPICONDYLE_CSA,
+                       GRIP_PATTERN_EXTENSOR)
 from .equipment import EquipmentModel
 from .exercises import Exercise
 
@@ -94,10 +96,22 @@ class BiomechanicsEngine:
 
         activations    = {m: np.zeros(n_points) for m in exercise.muscles}
         forces         = {m: np.zeros(n_points) for m in exercise.muscles}
-        grip_act       = np.zeros(n_points)
-        wrist_stress   = np.zeros(n_points)
-        elbow_stress   = np.zeros(n_points)
-        shoulder_stress = np.zeros(n_points)
+        grip_act              = np.zeros(n_points)
+        wrist_stress          = np.zeros(n_points)
+        elbow_stress          = np.zeros(n_points)
+        shoulder_stress       = np.zeros(n_points)
+        medial_epic_stress    = np.zeros(n_points)
+        lateral_epic_stress   = np.zeros(n_points)
+
+        # Grip force is constant across ROM (equipment property + cable load)
+        grip_force = self.eq.grip_fraction() * f_cable
+
+        # Epicondyle: wrist flexors generate grip force → medial tendon stress
+        # Wrist extensors co-contract proportionally → lateral tendon stress
+        # The co-contraction ratio depends on grip orientation (supinated/pronated)
+        extensor_ratio = GRIP_PATTERN_EXTENSOR.get(exercise.grip_pattern, 0.2)
+        medial_stress_val  = grip_force / MEDIAL_EPICONDYLE_CSA
+        lateral_stress_val = (grip_force * extensor_ratio) / LATERAL_EPICONDYLE_CSA
 
         for i, (a_deg, a_rad) in enumerate(zip(angles_deg, angles_rad)):
             tau_ext = f_cable * L * np.sin(a_rad)
@@ -110,16 +124,14 @@ class BiomechanicsEngine:
                 activations[m][i] = acts.get(m, 0.0) * 100.0   # → %MVC
                 forces[m][i]      = frc.get(m, 0.0)
 
-            # Grip
-            grip_force = self.eq.grip_fraction() * f_cable
             grip_act[i] = (grip_force / exercise.grip_fmax) * 100.0
 
-            # Wrist stress
+            # Wrist stress (joint reaction)
             tau_w = self.eq.wrist_torque(f_cable)
             wf = np.sqrt(grip_force**2 + (tau_w / 0.02)**2)
             wrist_stress[i] = wf / JOINT_REF_AREA["wrist"]
 
-            # Elbow stress
+            # Elbow stress (joint reaction)
             total_mf = sum(frc.values())
             if exercise.joint == "elbow":
                 ef = np.sqrt(total_mf**2 + (f_cable * np.cos(a_rad))**2)
@@ -131,6 +143,10 @@ class BiomechanicsEngine:
             if exercise.joint == "shoulder":
                 shoulder_stress[i] = total_mf / JOINT_REF_AREA["shoulder"]
 
+            # Epicondyle tendon stress (constant across ROM — driven by grip, not angle)
+            medial_epic_stress[i]  = medial_stress_val
+            lateral_epic_stress[i] = lateral_stress_val
+
         peak_act = {m: float(np.max(activations[m])) for m in exercise.muscles}
         peak_act["grip"] = float(np.max(grip_act))
 
@@ -141,11 +157,15 @@ class BiomechanicsEngine:
             "activations":    activations,
             "grip_activation": grip_act,
             "forces":         forces,
-            "wrist_stress":   wrist_stress,
-            "elbow_stress":   elbow_stress,
-            "shoulder_stress": shoulder_stress,
-            "peak_activations":      peak_act,
-            "peak_wrist_stress":     float(np.max(wrist_stress)),
-            "peak_elbow_stress":     float(np.max(elbow_stress)),
-            "peak_shoulder_stress":  float(np.max(shoulder_stress)),
+            "wrist_stress":          wrist_stress,
+            "elbow_stress":          elbow_stress,
+            "shoulder_stress":       shoulder_stress,
+            "medial_epicondyle_stress":  medial_epic_stress,
+            "lateral_epicondyle_stress": lateral_epic_stress,
+            "peak_activations":              peak_act,
+            "peak_wrist_stress":             float(np.max(wrist_stress)),
+            "peak_elbow_stress":             float(np.max(elbow_stress)),
+            "peak_shoulder_stress":          float(np.max(shoulder_stress)),
+            "peak_medial_epicondyle_stress":  float(medial_stress_val),
+            "peak_lateral_epicondyle_stress": float(lateral_stress_val),
         }

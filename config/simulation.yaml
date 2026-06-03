@@ -97,6 +97,30 @@ shoulder_muscles:
 
 grip_fmax: 600.0   # forearm flexor group max force (N)
 
+# ── Epicondyle tendon model ───────────────────────────────────
+# Medial epicondyle: common flexor-pronator tendon (FCR, FCU, PL, PT origin)
+# Lateral epicondyle: ECRB / common extensor tendon origin
+# CSA values from published anatomical cadaveric studies
+epicondyles:
+  medial:
+    description: "Common flexor-pronator tendon (medial epicondyle = golfer's elbow)"
+    tendon_csa_m2: 0.000150   # 150 mm²
+  lateral:
+    description: "Common extensor / ECRB tendon (lateral epicondyle = tennis elbow)"
+    tendon_csa_m2: 0.000100   # 100 mm²
+
+# ECRB co-contraction ratio relative to grip force, by grip orientation.
+# Supinated: biceps stabilises wrist → extensor demand low.
+# Pronated:  wrist extensors co-contract to resist wrist-drop moment.
+# BioMek eliminates grip demand, so this co-contraction also drops to near zero.
+grip_patterns:
+  supinated:
+    extensor_cocontraction: 0.08
+  pronated:
+    extensor_cocontraction: 0.90
+  neutral:
+    extensor_cocontraction: 0.20
+
 # ── Exercise definitions ──────────────────────────────────────
 exercises:
   standard_curl:
@@ -104,18 +128,21 @@ exercises:
     joint: elbow
     angle_range_deg: [10, 140]
     muscles: ["BIClong", "BICshort", "BRA", "TRIlong", "TRIlat", "TRImed"]
-    note: "Supinated grip. BIC+BRA are primary flexors; TRI are antagonists."
+    grip_pattern: supinated
+    note: "Supinated grip → medial epicondyle is the primary tendon at risk."
 
   reverse_curl:
     name: "Reverse Curl"
     joint: elbow
     angle_range_deg: [10, 140]
     muscles: ["BIClong", "BICshort", "BRA", "TRIlong", "TRIlat", "TRImed"]
-    note: "Pronated grip. Same elbow mechanics; grip stress difference drives epicondyle comparison."
+    grip_pattern: pronated
+    note: "Pronated grip → ECRB co-contraction drives lateral epicondyle stress."
 
   lateral_raise:
     name: "Lateral Raise"
     joint: shoulder
     angle_range_deg: [5, 90]
     muscles: ["DELT_lat", "DELT_ant", "SUPSP"]
+    grip_pattern: neutral
     note: "Shoulder abduction. Holzbaur full UE model deltoid + supraspinatus."

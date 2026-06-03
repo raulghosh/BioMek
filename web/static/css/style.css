@@ -217,7 +217,7 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.2); }
 /* ── Hero metrics ─────────────────────────────────────────── */
 .metrics-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
 }
 
@@ -421,7 +421,7 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.2); }
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 1100px) {
   .charts-2col { grid-template-columns: 1fr; }
-  .metrics-row { grid-template-columns: repeat(2, 1fr); }
+  .metrics-row { grid-template-columns: repeat(3, 1fr); }
 }
 
 /* ── Scrollbar ───────────────────────────────────────────── */

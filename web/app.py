@@ -55,6 +55,7 @@ def _run_simulation(params: dict) -> dict:
             moment_arm_fn=moment_fn,
             muscle_db=muscle_db,
             grip_fmax=float(ex_cfg.get("grip_fmax", 600.0)),
+            grip_pattern=ex_cfg.get("grip_pattern", "neutral"),
         ))
 
     eq_trad = EquipmentModel("traditional")
@@ -66,19 +67,22 @@ def _run_simulation(params: dict) -> dict:
         res_dev  = BiomechanicsEngine(eq_dev).run_simulation(ex, f_cable, n_points)
 
         def serialise(r):
-            # Merge grip into activations dict, flatten stress arrays into stresses dict
             acts = {m: r["activations"][m].tolist() for m in ex.muscles}
             acts["grip"] = r["grip_activation"].tolist()
             stresses = {
-                "wrist": r["wrist_stress"].tolist(),
-                "elbow": r["elbow_stress"].tolist(),
+                "wrist":             r["wrist_stress"].tolist(),
+                "elbow":             r["elbow_stress"].tolist(),
+                "medial_epicondyle": r["medial_epicondyle_stress"].tolist(),
+                "lateral_epicondyle": r["lateral_epicondyle_stress"].tolist(),
             }
             if ex.joint == "shoulder":
                 stresses["shoulder"] = r["shoulder_stress"].tolist()
 
             peak_st = {
-                "wrist": r["peak_wrist_stress"],
-                "elbow": r["peak_elbow_stress"],
+                "wrist":             r["peak_wrist_stress"],
+                "elbow":             r["peak_elbow_stress"],
+                "medial_epicondyle": r["peak_medial_epicondyle_stress"],
+                "lateral_epicondyle": r["peak_lateral_epicondyle_stress"],
             }
             if ex.joint == "shoulder":
                 peak_st["shoulder"] = r["peak_shoulder_stress"]

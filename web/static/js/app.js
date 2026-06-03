@@ -24,9 +24,19 @@ const MUSCLE_META = {
 };
 
 const JOINT_COLORS = {
-  wrist:    "#f85149",
-  elbow:    "#d29922",
-  shoulder: "#388bfd",
+  wrist:              "#f85149",
+  elbow:              "#d29922",
+  shoulder:           "#388bfd",
+  medial_epicondyle:  "#a855f7",   // purple — golfer's elbow
+  lateral_epicondyle: "#ec4899",   // pink   — tennis elbow
+};
+
+const JOINT_LABELS = {
+  wrist:              "Wrist",
+  elbow:              "Elbow",
+  shoulder:           "Shoulder",
+  medial_epicondyle:  "Medial Epicondyle (Golfer's)",
+  lateral_epicondyle: "Lateral Epicondyle (Tennis)",
 };
 
 // ── Defaults ─────────────────────────────────────────────────
@@ -37,17 +47,17 @@ const DEFAULTS = {
   exercises: {
     standard_curl: {
       name: "Standard Curl", joint: "elbow", grip_fmax: 600,
-      angle_range_deg: [10, 140],
+      angle_range_deg: [10, 140], grip_pattern: "supinated",
       muscles: ["BIClong", "BICshort", "BRA", "TRIlong", "TRIlat", "TRImed"],
     },
     reverse_curl: {
       name: "Reverse Curl", joint: "elbow", grip_fmax: 600,
-      angle_range_deg: [10, 140],
+      angle_range_deg: [10, 140], grip_pattern: "pronated",
       muscles: ["BIClong", "BICshort", "BRA", "TRIlong", "TRIlat", "TRImed"],
     },
     lateral_raise: {
       name: "Lateral Raise", joint: "shoulder", grip_fmax: 600,
-      angle_range_deg: [5, 90],
+      angle_range_deg: [5, 90], grip_pattern: "neutral",
       muscles: ["DELT_lat", "DELT_ant", "SUPSP"],
     },
   }
@@ -305,10 +315,10 @@ function renderResults(data) {
         borderColor:     displayMuscles.map(m => MUSCLE_META[m]?.color||"#aaa"), borderWidth:1 },
     ], "Peak Activation (% MVC)");
 
-    // Bar: peak joint stress
+    // Bar: peak joint stress — show all joints including epicondyles
     const joints = Object.keys(bm.peak_stresses);
     charts[key].barst = mkBarChart(`chart-barst-${key}`,
-      joints.map(j => j.charAt(0).toUpperCase()+j.slice(1)), [
+      joints.map(j => JOINT_LABELS[j] || j), [
       { label:"Traditional",
         data: joints.map(j => +((tr.peak_stresses[j]||0)/1000).toFixed(1)),
         backgroundColor: joints.map(j => (JOINT_COLORS[j]||"#aaa")+"55"),
@@ -338,8 +348,9 @@ function renderResults(data) {
         const dv = ((bm.peak_stresses[j]||0)/1000).toFixed(1);
         const delta = pct(bm.peak_stresses[j], tr.peak_stresses[j]);
         const cls = delta > 0 ? "good" : (delta < -5 ? "bad" : "");
+        const jLabel = JOINT_LABELS[j] || j.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
         html += `<tr>
-          <td style="color:${JOINT_COLORS[j]||'#aaa'}">${j.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())} stress</td>
+          <td style="color:${JOINT_COLORS[j]||'#aaa'}">${jLabel}</td>
           <td class="td-trad">${tv} kPa</td><td class="td-dev">${dv} kPa</td>
           <td class="td-delta ${cls}">${fmtPct(delta)}</td></tr>`;
       });
@@ -353,7 +364,7 @@ function renderResults(data) {
 }
 
 function updateHeroMetrics(data) {
-  let wristRed = [], gripRed = [], elbowRed = [];
+  let wristRed = [], gripRed = [], elbowRed = [], epicRed = [];
 
   data.results.forEach(res => {
     const wt = res.traditional.peak_stresses.wrist || 1;
@@ -362,12 +373,22 @@ function updateHeroMetrics(data) {
     gripRed.push(pct(res.biomek.peak_activations.grip, gt));
     const et = res.traditional.peak_stresses.elbow || 1;
     elbowRed.push(pct(res.biomek.peak_stresses.elbow, et));
+    // Epicondyle: take whichever is higher (medial vs lateral) as primary indicator
+    const mt = res.traditional.peak_stresses.medial_epicondyle || 0;
+    const lt = res.traditional.peak_stresses.lateral_epicondyle || 0;
+    if (mt > 0 || lt > 0) {
+      const epicT = Math.max(mt, lt);
+      const epicB = Math.max(res.biomek.peak_stresses.medial_epicondyle || 0,
+                             res.biomek.peak_stresses.lateral_epicondyle || 0);
+      epicRed.push(pct(epicB, epicT));
+    }
   });
 
   const avg = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
   $("m-wrist").textContent = avg(wristRed) + "%";
   $("m-grip").textContent  = avg(gripRed)  + "%";
   $("m-elbow").textContent = avg(elbowRed) + "%";
+  if ($("m-epic")) $("m-epic").textContent = avg(epicRed) + "%";
 
   const equivLbs = Math.round(state.f_cable_lbs / 0.77);
   $("m-equiv").textContent = fmtWeight(equivLbs);
@@ -391,6 +412,7 @@ function buildPayload() {
       angle_range_deg: ex.angle_range_deg,
       muscles: ex.muscles,
       grip_fmax: ex.grip_fmax || 600,
+      grip_pattern: ex.grip_pattern || "neutral",
     };
   });
   return {
