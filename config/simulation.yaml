@@ -1,103 +1,121 @@
+# BioMek Simulation Configuration
+# Muscle parameters from arm26.osim (Holzbaur et al. 2005 / Thelen 2003)
+# https://github.com/opensim-org/opensim-models/tree/master/Models/Arm26
+
 simulation:
-  f_cable: 50.0        # Cable force in Newtons (~11 lbs)
-  n_rom_points: 50     # Points in range-of-motion sweep
+  f_cable_lbs: 11        # Cable force displayed to user (lbs)
+  n_rom_points: 60
 
 output:
   dpi: 150
-  format: png
 
-anatomy:
-  segments:
-    upper_arm_length: 0.30   # shoulder to elbow (m)
-    forearm_length: 0.25     # elbow to wrist (m)
-    hand_length: 0.10        # wrist to mid-palm (m)
-    hand_grip_center: 0.05   # mid-palm from wrist (m)
-
-  muscles:
-    biceps:
-      insertion: 0.04
-      fmax: 800
-      ma_base: 0.040
-      ma_var: 0.50
-    brachialis:
-      insertion: 0.03
-      fmax: 1000
-      ma_base: 0.030
-      ma_var: 0.30
-    brachioradialis:
-      insertion: 0.20
-      fmax: 200
-      ma_base: 0.050
-      ma_var: 0.20
-    forearm_flexors:
-      insertion: 0.05
-      fmax: 600
-      ma_base: 0.025
-      ma_var: 0.10
-    deltoid_lateral:
-      insertion: 0.15
-      fmax: 1200
-      ma_base: 0.020
-      ma_var: 2.00
-    deltoid_anterior:
-      insertion: 0.15
-      fmax: 1200
-      ma_base: 0.018
-      ma_var: 1.50
-    supraspinatus:
-      insertion: 0.02
-      fmax: 400
-      ma_base: 0.010
-      ma_var: 0.80
-
-  joint_ref_areas:
-    wrist: 0.0006      # m² (~6 cm²)
-    elbow: 0.0012      # m² (~12 cm²)
-    shoulder: 0.0020   # m² (~20 cm²)
+# ── Segment geometry (meters, from arm26 model) ───────────────
+segments:
+  upper_arm_length: 0.2817    # r_humerus: shoulder to elbow
+  forearm_length: 0.2534      # r_ulna_radius_hand to wrist
+  hand_grip_center: 0.05      # wrist to mid-palm
 
 device:
-  pad_from_wrist: 0.02          # pad sits 2 cm above wrist joint (m)
-  grip_force_fraction: 0.05     # 5% of cable load for stabilization
+  pad_from_wrist: 0.02        # BioMek pad: 2 cm proximal to wrist
+  grip_force_fraction: 0.05   # 5% of cable load for stabilization
 
+# ── Joint stress reference areas (m²) ────────────────────────
+joint_ref_areas:
+  wrist: 0.0006      # ~6 cm²
+  elbow: 0.0012      # ~12 cm²
+  shoulder: 0.0020   # ~20 cm²
+
+# ── Elbow muscles — exact values from arm26.osim ─────────────
+# Thelen2003Muscle parameters (Holzbaur et al. 2005)
+elbow_muscles:
+  BIClong:
+    full_name: "Biceps Long Head"
+    max_isometric_force: 624.3
+    optimal_fiber_length: 0.1157
+    tendon_slack_length: 0.2723
+    pennation_angle: 0.0
+    role: flexor
+  BICshort:
+    full_name: "Biceps Short Head"
+    max_isometric_force: 435.56
+    optimal_fiber_length: 0.1321
+    tendon_slack_length: 0.1923
+    pennation_angle: 0.0
+    role: flexor
+  BRA:
+    full_name: "Brachialis"
+    max_isometric_force: 987.26
+    optimal_fiber_length: 0.0858
+    tendon_slack_length: 0.0535
+    pennation_angle: 0.0
+    role: flexor
+  TRIlong:
+    full_name: "Triceps Long Head"
+    max_isometric_force: 798.52
+    optimal_fiber_length: 0.1340
+    tendon_slack_length: 0.1430
+    pennation_angle: 0.2094
+    role: extensor
+  TRIlat:
+    full_name: "Triceps Lateral Head"
+    max_isometric_force: 624.3
+    optimal_fiber_length: 0.1138
+    tendon_slack_length: 0.0980
+    pennation_angle: 0.1571
+    role: extensor
+  TRImed:
+    full_name: "Triceps Medial Head"
+    max_isometric_force: 624.3
+    optimal_fiber_length: 0.1138
+    tendon_slack_length: 0.0908
+    pennation_angle: 0.1571
+    role: extensor
+
+# ── Shoulder muscles — Holzbaur 2005 full upper extremity ─────
+shoulder_muscles:
+  DELT_lat:
+    full_name: "Deltoid Lateral"
+    max_isometric_force: 1142.6
+    optimal_fiber_length: 0.0838
+    tendon_slack_length: 0.0380
+    pennation_angle: 0.2618   # 15°
+    role: abductor
+  DELT_ant:
+    full_name: "Deltoid Anterior"
+    max_isometric_force: 1218.9
+    optimal_fiber_length: 0.0976
+    tendon_slack_length: 0.0930
+    pennation_angle: 0.3840   # 22°
+    role: abductor
+  SUPSP:
+    full_name: "Supraspinatus"
+    max_isometric_force: 487.8
+    optimal_fiber_length: 0.0682
+    tendon_slack_length: 0.0400
+    pennation_angle: 0.1222   # 7°
+    role: abductor
+
+grip_fmax: 600.0   # forearm flexor group max force (N)
+
+# ── Exercise definitions ──────────────────────────────────────
 exercises:
   standard_curl:
     name: "Standard Curl"
     joint: elbow
-    angle_range_deg: [10, 150]
-    muscle_weights:
-      biceps: 0.45
-      brachialis: 0.40
-      brachioradialis: 0.15
-    muscles_involved:
-      - biceps
-      - brachialis
-      - brachioradialis
-      - forearm_flexors
+    angle_range_deg: [10, 140]
+    muscles: ["BIClong", "BICshort", "BRA", "TRIlong", "TRIlat", "TRImed"]
+    note: "Supinated grip. BIC+BRA are primary flexors; TRI are antagonists."
 
   reverse_curl:
     name: "Reverse Curl"
     joint: elbow
-    angle_range_deg: [10, 150]
-    muscle_weights:
-      biceps: 0.25
-      brachialis: 0.35
-      brachioradialis: 0.40
-    muscles_involved:
-      - biceps
-      - brachialis
-      - brachioradialis
-      - forearm_flexors
+    angle_range_deg: [10, 140]
+    muscles: ["BIClong", "BICshort", "BRA", "TRIlong", "TRIlat", "TRImed"]
+    note: "Pronated grip. Same elbow mechanics; grip stress difference drives epicondyle comparison."
 
   lateral_raise:
     name: "Lateral Raise"
     joint: shoulder
     angle_range_deg: [5, 90]
-    muscle_weights:
-      deltoid_lateral: 0.60
-      deltoid_anterior: 0.25
-      supraspinatus: 0.15
-    muscles_involved:
-      - deltoid_lateral
-      - deltoid_anterior
-      - supraspinatus
-      - forearm_flexors
+    muscles: ["DELT_lat", "DELT_ant", "SUPSP"]
+    note: "Shoulder abduction. Holzbaur full UE model deltoid + supraspinatus."

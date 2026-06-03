@@ -1,6 +1,5 @@
-"""Entry point for the BioMek biomechanical simulation."""
+"""Entry point for the BioMek biomechanical simulation (standalone, no web)."""
 
-import os
 import matplotlib.pyplot as plt
 from pathlib import Path
 
@@ -10,82 +9,85 @@ from biomek.exercises import load_exercises
 from biomek.engine import BiomechanicsEngine
 from biomek import visualization as viz
 
-ROOT = Path(__file__).parents[1]
+ROOT       = Path(__file__).parents[1]
 OUTPUT_DIR = ROOT / "data" / "output"
+
+LBS_TO_N = 4.4482
 
 
 def main():
-    cfg = load_config()
-    f_cable: float = cfg["simulation"]["f_cable"]
-    n_points: int = cfg["simulation"]["n_rom_points"]
-    dpi: int = cfg["output"]["dpi"]
+    cfg     = load_config()
+    f_lbs   = cfg["simulation"]["f_cable_lbs"]
+    f_cable = f_lbs * LBS_TO_N
+    n_pts   = cfg["simulation"]["n_rom_points"]
+    dpi     = cfg["output"]["dpi"]
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
-    print("BioMek Forearm Device — Biomechanical Simulation")
+    print("BioMek — Standalone Simulation (arm26 / Holzbaur 2005)")
     print("=" * 60)
-    print(f"Cable load: {f_cable:.0f} N ({f_cable * 0.2248:.1f} lbs)\n")
+    print(f"Cable: {f_lbs} lbs ({f_cable:.1f} N) | Thelen2003 muscle model\n")
 
     eq_trad = EquipmentModel("traditional")
-    eq_dev = EquipmentModel("biomek")
-    engine_trad = BiomechanicsEngine(eq_trad)
-    engine_dev = BiomechanicsEngine(eq_dev)
-
+    eq_dev  = EquipmentModel("biomek")
     exercises = load_exercises(cfg)
     all_results = []
 
     for ex in exercises:
         print(f"--- {ex.name} ---")
-        res_trad = engine_trad.sweep_rom(f_cable, ex, n_points)
-        res_dev = engine_dev.sweep_rom(f_cable, ex, n_points)
+        res_trad = BiomechanicsEngine(eq_trad).run_simulation(ex, f_cable, n_pts)
+        res_dev  = BiomechanicsEngine(eq_dev).run_simulation(ex, f_cable, n_pts)
         all_results.append((ex, res_dev, res_trad))
 
-        print("  Peak muscle activations (% MVC):")
-        for m in ex.muscles_involved:
+        active = [m for m in ex.muscles if ex.muscle_db[m]["role"] != "extensor"]
+        for m in active + ["grip"]:
+            name = m if m == "grip" else ex.muscle_db[m]["full_name"]
             pt = res_trad["peak_activations"].get(m, 0)
             pd = res_dev["peak_activations"].get(m, 0)
-            print(f"    {m.replace('_', ' ').title():22s}  Trad: {pt:6.1f}%  Device: {pd:6.1f}%")
+            print(f"  {name:28s}  Trad: {pt:5.1f}%  Device: {pd:5.1f}%")
 
-        print("  Peak joint stresses (kPa):")
-        for j, st_val in res_trad["peak_stresses"].items():
-            sd_val = res_dev["peak_stresses"][j]
-            reduction = (1 - sd_val / st_val) * 100 if st_val > 0 else 0
-            print(f"    {j.title():12s}  Trad: {st_val/1000:8.1f}  Device: {sd_val/1000:8.1f}  (-{reduction:.0f}%)")
+        for j in ["wrist", "elbow", "shoulder"]:
+            st = res_trad.get(f"peak_{j}_stress", 0)
+            sd = res_dev.get(f"peak_{j}_stress", 0)
+            if st > 0.1:
+                red = (1 - sd / st) * 100
+                print(f"  {j.title():12s} stress   "
+                      f"Trad: {st/1000:6.1f} kPa  Device: {sd/1000:6.1f} kPa  (-{red:.0f}%)")
         print()
 
+    # Figures
     print("Generating visualizations...")
-    _save = lambda fig, name: (
-        fig.savefig(OUTPUT_DIR / name, dpi=dpi, bbox_inches="tight"),
-        print(f"  Saved {name}"),
-        plt.close(fig),
-    )
+    def _save(fig, name):
+        fig.savefig(OUTPUT_DIR / name, dpi=dpi, bbox_inches="tight")
+        print(f"  {name}")
+        plt.close(fig)
 
     fig1 = plt.figure(figsize=(12, 7))
     viz.plot_equipment_schematic(fig1)
     _save(fig1, "equipment_schematic.png")
 
-    fig2 = plt.figure(figsize=(16, 6))
-    fig2.suptitle("Peak Muscle Activation: BioMek Device vs Traditional Handle",
-                  fontsize=14, fontweight="bold", y=1.02)
-    viz.plot_muscle_activation_comparison(fig2, all_results)
+    fig2 = plt.figure(figsize=(16, 5))
+    fig2.suptitle("Peak Muscle Activation — BioMek vs Traditional (arm26/Holzbaur2005)",
+                  fontsize=13, fontweight="bold", y=1.02)
+    viz.plot_muscle_comparison(fig2, all_results)
     _save(fig2, "muscle_activation.png")
 
     fig3 = plt.figure(figsize=(12, 6))
-    viz.plot_joint_stress_comparison(fig3, all_results)
+    viz.plot_joint_stress(fig3, all_results)
     _save(fig3, "joint_stress.png")
 
     fig4 = plt.figure(figsize=(14, 12))
-    fig4.suptitle("Range of Motion Analysis: BioMek vs Traditional",
-                  fontsize=14, fontweight="bold")
+    fig4.suptitle("ROM Analysis — BioMek vs Traditional (arm26/Holzbaur2005)",
+                  fontsize=13, fontweight="bold")
     viz.plot_rom_sweep(fig4, all_results)
     _save(fig4, "rom_sweep.png")
 
     fig5 = plt.figure(figsize=(12, 8))
-    viz.plot_summary_dashboard(fig5, all_results, f_cable)
+    viz.plot_summary(fig5, all_results, f_cable)
     _save(fig5, "summary_dashboard.png")
 
-    print("\nSimulation complete. All figures saved to data/output/")
+    print(f"\nAll figures saved to {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":

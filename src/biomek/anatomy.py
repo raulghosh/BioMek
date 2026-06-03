@@ -1,6 +1,6 @@
 """
-Anatomy constants and muscle mechanics helpers.
-Loaded from config/simulation.yaml at import time.
+Muscle parameters (arm26.osim / Holzbaur 2005), Thelen2003 force-length,
+and Holzbaur 2005 moment-arm polynomial fits.
 """
 
 import numpy as np
@@ -9,25 +9,75 @@ from pathlib import Path
 
 _CONFIG_PATH = Path(__file__).parents[2] / "config" / "simulation.yaml"
 
+
 def load_config(path: Path = _CONFIG_PATH) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
 
+
 _cfg = load_config()
-MUSCLE_PARAMS: dict = _cfg["anatomy"]["muscles"]
-JOINT_REF_AREA: dict = _cfg["anatomy"]["joint_ref_areas"]
-SEGMENTS: dict = _cfg["anatomy"]["segments"]
+ELBOW_MUSCLES: dict   = _cfg["elbow_muscles"]
+SHOULDER_MUSCLES: dict = _cfg["shoulder_muscles"]
+SEGMENTS: dict         = _cfg["segments"]
+JOINT_REF_AREA: dict   = _cfg["joint_ref_areas"]
+GRIP_FMAX: float       = _cfg["grip_fmax"]
+
+FLEXORS   = ["BIClong", "BICshort", "BRA"]
+EXTENSORS = ["TRIlong", "TRIlat",   "TRImed"]
+ABDUCTORS = ["DELT_lat", "DELT_ant", "SUPSP"]
 
 
-def muscle_moment_arm(muscle_name: str, joint_angle_rad: float) -> float:
+# ── Thelen2003 force-length ───────────────────────────────────
+
+def thelen_active_force_length(norm_fiber_length: float, gamma: float = 0.5) -> float:
+    """Active force-length (Thelen 2003). Returns scalar in [0,1]."""
+    return np.exp(-((norm_fiber_length - 1.0) ** 2) / gamma)
+
+
+def thelen_passive_force_length(norm_fiber_length, kPE: float = 4.0, e0: float = 0.6):
+    """Passive force-length (Thelen 2003). Zero for compressed fibers."""
+    strain = norm_fiber_length - 1.0
+    if np.isscalar(strain):
+        if strain <= 0:
+            return 0.0
+        return (np.exp(kPE * strain / e0) - 1.0) / (np.exp(kPE) - 1.0)
+    result = np.zeros_like(np.asarray(strain, dtype=float))
+    mask = strain > 0
+    result[mask] = (np.exp(kPE * strain[mask] / e0) - 1.0) / (np.exp(kPE) - 1.0)
+    return result
+
+
+# ── Holzbaur 2005 moment-arm fits ────────────────────────────
+
+def elbow_moment_arms(angles_rad) -> dict:
     """
-    Effective moment arm (m) at a given joint angle.
-    Varies sinusoidally, peaking near 90° flexion/abduction.
+    Moment arms (m) for elbow muscles vs elbow flexion angle.
+    Polynomial fits to Holzbaur et al. 2005, Fig. 4.
+    Positive = flexion; negative = extension.
     """
-    p = MUSCLE_PARAMS[muscle_name]
-    return p["ma_base"] * (1.0 + p["ma_var"] * np.sin(joint_angle_rad))
+    a = np.asarray(angles_rad)
+    return {
+        # Biceps long head: peaks ~4.8 cm near 80° (1.4 rad)
+        "BIClong":  0.048 * np.sin(0.88*a + 0.25) * np.clip(1.0 - 0.12*(a-1.4)**2, 0.55, 1.0),
+        # Biceps short head: slightly smaller
+        "BICshort": 0.042 * np.sin(0.88*a + 0.25) * np.clip(1.0 - 0.12*(a-1.4)**2, 0.55, 1.0),
+        # Brachialis: broad peak ~1.8 cm
+        "BRA":      0.018 * (1.0 + 0.35 * np.sin(a * 0.9 + 0.1)),
+        # Triceps (extensors — negative)
+        "TRIlong":  -0.024 * (1.0 + 0.18 * np.sin(a * 0.8)),
+        "TRIlat":   -0.021 * (1.0 + 0.15 * np.sin(a * 0.8)),
+        "TRImed":   -0.021 * (1.0 + 0.15 * np.sin(a * 0.8)),
+    }
 
 
-def muscle_max_force(muscle_name: str) -> float:
-    """Maximum isometric force (N) for a muscle."""
-    return MUSCLE_PARAMS[muscle_name]["fmax"]
+def shoulder_moment_arms(angles_rad) -> dict:
+    """
+    Moment arms (m) for shoulder abduction muscles vs abduction angle.
+    Holzbaur 2005 approximations.
+    """
+    a = np.asarray(angles_rad)
+    return {
+        "DELT_lat": 0.025 * (1.0 + 1.8 * np.sin(a)),
+        "DELT_ant": 0.020 * (1.0 + 1.2 * np.sin(a)),
+        "SUPSP":    0.012 * (1.0 + 0.6 * np.sin(a)),
+    }

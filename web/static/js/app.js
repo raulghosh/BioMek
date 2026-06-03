@@ -1,64 +1,64 @@
 /* ============================================================
-   BioMek Simulation — Frontend App
+   BioMek Simulation — Frontend (arm26 / Holzbaur 2005 physics)
    ============================================================ */
+'use strict';
 
-// ── Defaults (mirroring simulation.yaml) ─────────────────────
 const LBS_TO_N = 4.4482;
-const KG_TO_N  = 9.8066;
 
 function fmtWeight(lbs) {
   return `${lbs} lbs (${(lbs / 2.2046).toFixed(1)} kg)`;
 }
 
+// ── arm26 muscle metadata ────────────────────────────────────
+const MUSCLE_META = {
+  BIClong:   { label: "Biceps Long Head",     color: "#e74c3c", role: "flexor"   },
+  BICshort:  { label: "Biceps Short Head",    color: "#c0392b", role: "flexor"   },
+  BRA:       { label: "Brachialis",           color: "#e67e22", role: "flexor"   },
+  TRIlong:   { label: "Triceps Long Head",    color: "#3498db", role: "extensor" },
+  TRIlat:    { label: "Triceps Lateral Head", color: "#2980b9", role: "extensor" },
+  TRImed:    { label: "Triceps Medial Head",  color: "#1abc9c", role: "extensor" },
+  DELT_lat:  { label: "Deltoid Lateral",      color: "#3498db", role: "abductor" },
+  DELT_ant:  { label: "Deltoid Anterior",     color: "#2980b9", role: "abductor" },
+  SUPSP:     { label: "Supraspinatus",        color: "#8e44ad", role: "abductor" },
+  grip:      { label: "Grip (Forearm Flex.)", color: "#95a5a6", role: "grip"     },
+};
+
+const JOINT_COLORS = {
+  wrist:    "#f85149",
+  elbow:    "#d29922",
+  shoulder: "#388bfd",
+};
+
+// ── Defaults ─────────────────────────────────────────────────
 const DEFAULTS = {
-  f_cable: 11,   // stored in lbs internally; converted to N on API call
+  f_cable_lbs: 11,
   pad_from_wrist: 2,       // cm
   grip_force_fraction: 5,  // %
   exercises: {
     standard_curl: {
-      name: "Standard Curl", joint: "elbow",
-      angle_range_deg: [10, 150],
-      muscles_involved: ["biceps","brachialis","brachioradialis","forearm_flexors"],
-      muscle_weights: { biceps: 45, brachialis: 40, brachioradialis: 15 }
+      name: "Standard Curl", joint: "elbow", grip_fmax: 600,
+      angle_range_deg: [10, 140],
+      muscles: ["BIClong", "BICshort", "BRA", "TRIlong", "TRIlat", "TRImed"],
     },
     reverse_curl: {
-      name: "Reverse Curl", joint: "elbow",
-      angle_range_deg: [10, 150],
-      muscles_involved: ["biceps","brachialis","brachioradialis","forearm_flexors"],
-      muscle_weights: { biceps: 25, brachialis: 35, brachioradialis: 40 }
+      name: "Reverse Curl", joint: "elbow", grip_fmax: 600,
+      angle_range_deg: [10, 140],
+      muscles: ["BIClong", "BICshort", "BRA", "TRIlong", "TRIlat", "TRImed"],
     },
     lateral_raise: {
-      name: "Lateral Raise", joint: "shoulder",
+      name: "Lateral Raise", joint: "shoulder", grip_fmax: 600,
       angle_range_deg: [5, 90],
-      muscles_involved: ["deltoid_lateral","deltoid_anterior","supraspinatus","forearm_flexors"],
-      muscle_weights: { deltoid_lateral: 60, deltoid_anterior: 25, supraspinatus: 15 }
-    }
+      muscles: ["DELT_lat", "DELT_ant", "SUPSP"],
+    },
   }
 };
 
-const MUSCLE_COLORS = {
-  biceps:           "#e74c3c",
-  brachialis:       "#e67e22",
-  brachioradialis:  "#f1c40f",
-  forearm_flexors:  "#95a5a6",
-  deltoid_lateral:  "#3498db",
-  deltoid_anterior: "#2980b9",
-  supraspinatus:    "#8e44ad",
-};
-
-const JOINT_COLORS = { wrist: "#f85149", elbow: "#d29922", shoulder: "#388bfd" };
-
-const GREEN = "#3fb950";
-const TRAD_COLOR = "rgba(120,120,140,0.7)";
-
-// ── State ─────────────────────────────────────────────────────
 let state = JSON.parse(JSON.stringify(DEFAULTS));
 let activeExKey = "standard_curl";
-let charts = {};       // { exKey: { rom_act, rom_stress, bar_act, bar_stress } }
+let charts = {};
 let debounceTimer = null;
 let lastResults = null;
 
-// ── Utility ───────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
 function pct(dev, trad) {
@@ -71,19 +71,14 @@ function fmtPct(v) {
   return (v > 0 ? "-" : "+") + Math.abs(v) + "%";
 }
 
-function muscleLabel(k) {
-  return k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+function activeMuscles(key) {
+  return state.exercises[key].muscles.filter(m => {
+    const r = MUSCLE_META[m]?.role;
+    return r === "flexor" || r === "abductor";
+  });
 }
 
-function clampWeights(weights) {
-  // Normalise non-grip muscles to sum to 100
-  const keys = Object.keys(weights);
-  const total = keys.reduce((s, k) => s + weights[k], 0);
-  if (total === 0) return;
-  keys.forEach(k => weights[k] = Math.round(weights[k] / total * 100));
-}
-
-// ── Build sidebar exercise tabs ───────────────────────────────
+// ── Exercise tab strip (sidebar) ─────────────────────────────
 function buildSidebarTabs() {
   const container = $("ex-tabs");
   container.innerHTML = "";
@@ -91,84 +86,54 @@ function buildSidebarTabs() {
     const btn = document.createElement("button");
     btn.className = "ex-tab" + (key === activeExKey ? " active" : "");
     btn.textContent = state.exercises[key].name;
-    btn.onclick = () => { activeExKey = key; refreshSidebarTabs(); renderMuscleWeights(); };
+    btn.onclick = () => { activeExKey = key; refreshSidebarTabs(); renderMuscleInfo(); };
     container.appendChild(btn);
   });
 }
 
 function refreshSidebarTabs() {
   document.querySelectorAll(".ex-tab").forEach((btn, i) => {
-    const key = Object.keys(state.exercises)[i];
-    btn.classList.toggle("active", key === activeExKey);
+    btn.classList.toggle("active", Object.keys(state.exercises)[i] === activeExKey);
   });
 }
 
-// ── Build muscle weight sliders ───────────────────────────────
-function renderMuscleWeights() {
-  const section = $("muscle-weight-section");
+// ── Muscle info panel (read-only — optimizer determines weights) ─
+function renderMuscleInfo() {
+  const section = $("muscle-info-section");
+  if (!section) return;
   section.innerHTML = "";
-  const ex = state.exercises[activeExKey];
-  const primaries = ex.muscles_involved.filter(m => m !== "forearm_flexors");
 
-  primaries.forEach(muscle => {
-    const val = ex.muscle_weights[muscle] || 0;
-
+  const active = activeMuscles(activeExKey);
+  active.forEach(m => {
+    const meta = MUSCLE_META[m] || {};
     const row = document.createElement("div");
-    row.className = "weight-row";
-
-    const lbl = document.createElement("div");
-    lbl.className = "weight-label";
-    lbl.innerHTML = `<span>${muscleLabel(muscle)}</span><span id="wlbl-${muscle}">${val}%</span>`;
-
-    const sl = document.createElement("input");
-    sl.type = "range"; sl.min = 1; sl.max = 98; sl.step = 1; sl.value = val;
-    sl.style.accentColor = MUSCLE_COLORS[muscle] || GREEN;
-
-    // Style the track to match muscle colour
-    sl.addEventListener("input", () => {
-      ex.muscle_weights[muscle] = parseInt(sl.value);
-      // Proportionally redistribute remaining weight
-      const others = primaries.filter(m => m !== muscle);
-      const remaining = 100 - parseInt(sl.value);
-      const otherTotal = others.reduce((s, m) => s + (ex.muscle_weights[m] || 1), 0);
-      others.forEach(m => {
-        ex.muscle_weights[m] = Math.max(1, Math.round((ex.muscle_weights[m] / otherTotal) * remaining));
-      });
-      renderMuscleWeights();    // re-render sliders with updated values
-      buildSidebarTabs();
-      scheduleSimulate();
-    });
-
-    const barBg = document.createElement("div");
-    barBg.className = "weight-bar-bg";
-    const bar = document.createElement("div");
-    bar.className = "weight-bar";
-    bar.style.width = val + "%";
-    bar.style.background = MUSCLE_COLORS[muscle] || GREEN;
-    barBg.appendChild(bar);
-
-    row.appendChild(lbl);
-    row.appendChild(sl);
-    row.appendChild(barBg);
+    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:4px 0;font-size:11px;";
+    row.innerHTML = `
+      <div style="width:10px;height:10px;border-radius:50%;background:${meta.color};flex-shrink:0;"></div>
+      <span style="color:var(--text)">${meta.label}</span>
+      <span style="margin-left:auto;color:var(--text-muted);font-size:10px;">
+        ${_fmax(m)} N Fmax
+      </span>`;
     section.appendChild(row);
   });
-
-  // Weight sum warning
-  const total = primaries.reduce((s, m) => s + (ex.muscle_weights[m] || 0), 0);
-  $("weight-warn").style.display = Math.abs(total - 100) > 2 ? "block" : "none";
 }
 
-// ── Build main exercise strip + panels ───────────────────────
+const ARM26_FMAX = {
+  BIClong:624.3, BICshort:435.56, BRA:987.26,
+  TRIlong:798.52, TRIlat:624.3, TRImed:624.3,
+  DELT_lat:1142.6, DELT_ant:1218.9, SUPSP:487.8
+};
+function _fmax(m) { return ARM26_FMAX[m] ? ARM26_FMAX[m].toFixed(0) : "—"; }
+
+// ── Main exercise tab strip + panels ─────────────────────────
 function buildMainPanels() {
   const strip = $("main-ex-strip");
   const panels = $("exercise-panels");
-  strip.innerHTML = "";
-  panels.innerHTML = "";
+  strip.innerHTML = ""; panels.innerHTML = "";
 
   Object.keys(state.exercises).forEach(key => {
     const ex = state.exercises[key];
 
-    // Tab
     const tab = document.createElement("button");
     tab.className = "ex-strip-tab" + (key === activeExKey ? " active" : "");
     tab.textContent = ex.name;
@@ -176,7 +141,6 @@ function buildMainPanels() {
     tab.onclick = () => switchMainTab(key);
     strip.appendChild(tab);
 
-    // Panel
     const panel = document.createElement("div");
     panel.id = "expanel-" + key;
     panel.style.display = key === activeExKey ? "flex" : "none";
@@ -216,11 +180,15 @@ function buildMainPanels() {
         </div>
       </div>
       <div class="chart-card" style="padding:0;overflow:hidden;">
-        <div style="padding:14px 18px 0;font-size:12px;font-weight:600;color:var(--text-muted);
-                    text-transform:uppercase;letter-spacing:0.5px;">Full Comparison Table</div>
-        <table class="summary-table" id="table-${key}" style="margin-top:8px;"></table>
-      </div>
-    `;
+        <div style="padding:14px 18px 6px;font-size:11px;font-weight:600;color:var(--text-muted);
+                    text-transform:uppercase;letter-spacing:0.5px;">
+          Full Comparison Table
+          <span style="font-size:9px;font-weight:400;color:#555;margin-left:8px;text-transform:none;">
+            Static optimization · Thelen2003 muscle model · arm26.osim (Holzbaur 2005)
+          </span>
+        </div>
+        <table class="summary-table" id="table-${key}"></table>
+      </div>`;
     panels.appendChild(panel);
   });
 }
@@ -235,228 +203,150 @@ function switchMainTab(key) {
     if (p) p.style.display = k === key ? "flex" : "none";
   });
   refreshSidebarTabs();
-  renderMuscleWeights();
-  // Reset angle to range start for the new exercise and restart
+  renderMuscleInfo();
   _animAngle = state.exercises[key]?.angle_range_deg?.[0] ?? 10;
   _animDir   = 1;
   startAnimation();
 }
 
-// ── Chart helpers ─────────────────────────────────────────────
+// ── Chart config ──────────────────────────────────────────────
 const CHART_DEFAULTS = {
-  responsive: true,
-  maintainAspectRatio: false,
+  responsive: true, maintainAspectRatio: false,
   animation: { duration: 300 },
   plugins: {
     legend: { display: false },
-    tooltip: {
-      backgroundColor: "#161b22",
-      borderColor: "#30363d",
-      borderWidth: 1,
-      titleColor: "#e6edf3",
-      bodyColor: "#8b949e",
-    }
+    tooltip: { backgroundColor:"#161b22", borderColor:"#30363d", borderWidth:1,
+               titleColor:"#e6edf3", bodyColor:"#8b949e" }
   },
   scales: {
-    x: {
-      grid: { color: "rgba(48,54,61,0.5)" },
-      ticks: { color: "#8b949e", font: { size: 10 } },
-    },
-    y: {
-      grid: { color: "rgba(48,54,61,0.5)" },
-      ticks: { color: "#8b949e", font: { size: 10 } },
-    }
+    x: { grid:{color:"rgba(48,54,61,0.5)"}, ticks:{color:"#8b949e", font:{size:10}} },
+    y: { grid:{color:"rgba(48,54,61,0.5)"}, ticks:{color:"#8b949e", font:{size:10}} }
   }
 };
 
 function mkLineChart(canvasId, datasets, xLabel, yLabel) {
-  const ctx = $(canvasId);
-  if (!ctx) return null;
+  const ctx = $(canvasId); if (!ctx) return null;
   const cfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
-  cfg.scales.x.title = { display: true, text: xLabel, color: "#8b949e", font: { size: 10 } };
-  cfg.scales.y.title = { display: true, text: yLabel, color: "#8b949e", font: { size: 10 } };
-  return new Chart(ctx, { type: "line", data: { datasets }, options: cfg });
+  cfg.scales.x.title = { display:true, text:xLabel, color:"#8b949e", font:{size:10} };
+  cfg.scales.y.title = { display:true, text:yLabel, color:"#8b949e", font:{size:10} };
+  return new Chart(ctx, { type:"line", data:{datasets}, options:cfg });
 }
 
 function mkBarChart(canvasId, labels, datasets, yLabel) {
-  const ctx = $(canvasId);
-  if (!ctx) return null;
+  const ctx = $(canvasId); if (!ctx) return null;
   const cfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
-  cfg.plugins.legend = {
-    display: true,
-    labels: { color: "#8b949e", font: { size: 10 }, boxWidth: 10 }
-  };
-  cfg.scales.y.title = { display: true, text: yLabel, color: "#8b949e", font: { size: 10 } };
-  return new Chart(ctx, {
-    type: "bar",
-    data: { labels, datasets },
-    options: { ...cfg, scales: { ...cfg.scales, x: { ...cfg.scales.x, ticks: { color: "#8b949e", font: { size: 9 } } } } }
-  });
+  cfg.plugins.legend = { display:true, labels:{color:"#8b949e",font:{size:10},boxWidth:10} };
+  cfg.scales.y.title = { display:true, text:yLabel, color:"#8b949e", font:{size:10} };
+  return new Chart(ctx, { type:"bar", data:{labels,datasets}, options:cfg });
 }
 
 function destroyChart(c) { if (c) c.destroy(); }
 
-// ── Render results into charts ────────────────────────────────
+// ── Render results ────────────────────────────────────────────
 function renderResults(data) {
   lastResults = data;
 
   data.results.forEach(res => {
     const key = Object.keys(state.exercises).find(k =>
-      state.exercises[k].name === res.exercise.name
-    );
+      state.exercises[k].name === res.exercise.name);
     if (!key) return;
 
-    const bm = res.biomek;
-    const tr = res.traditional;
-    const muscles = res.exercise.muscles_involved;
-    const primaries = muscles.filter(m => m !== "forearm_flexors");
+    const bm = res.biomek, tr = res.traditional;
+    const allMuscles = res.exercise.muscles;
+    const primaryMuscles = allMuscles.filter(m => MUSCLE_META[m]?.role !== "extensor");
+    const displayMuscles = [...primaryMuscles, "grip"];
     const angles = bm.angles_deg;
 
     if (!charts[key]) charts[key] = {};
-    destroyChart(charts[key].romact);
-    destroyChart(charts[key].romst);
-    destroyChart(charts[key].baract);
-    destroyChart(charts[key].barst);
+    ["romact","romst","baract","barst"].forEach(n => destroyChart(charts[key][n]));
 
-    // ── ROM: Muscle activation line chart ──────────────────
-    const romActDatasets = [];
-    muscles.forEach(m => {
-      const color = MUSCLE_COLORS[m] || "#aaa";
-      // BioMek solid
-      romActDatasets.push({
-        label: muscleLabel(m) + " (BioMek)",
-        data: bm.activations[m].map((v, i) => ({ x: angles[i], y: +v.toFixed(2) })),
-        borderColor: color, backgroundColor: "transparent",
-        borderWidth: 2, pointRadius: 0, tension: 0.4,
-      });
-      // Traditional dashed
-      romActDatasets.push({
-        label: muscleLabel(m) + " (Traditional)",
-        data: tr.activations[m].map((v, i) => ({ x: angles[i], y: +v.toFixed(2) })),
-        borderColor: color, backgroundColor: "transparent",
-        borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, tension: 0.4, opacity: 0.4,
-      });
+    // ROM: muscle activation
+    const romActDs = [];
+    displayMuscles.forEach(m => {
+      const color = MUSCLE_META[m]?.color || "#aaa";
+      romActDs.push({ label: (MUSCLE_META[m]?.label||m)+" (BioMek)",
+        data: bm.activations[m].map((v,i) => ({x:angles[i],y:+v.toFixed(2)})),
+        borderColor:color, backgroundColor:"transparent", borderWidth:2, pointRadius:0, tension:0.4 });
+      romActDs.push({ label: (MUSCLE_META[m]?.label||m)+" (Traditional)",
+        data: tr.activations[m].map((v,i) => ({x:angles[i],y:+v.toFixed(2)})),
+        borderColor:color, backgroundColor:"transparent", borderWidth:1.5,
+        borderDash:[5,4], pointRadius:0, tension:0.4 });
     });
+    charts[key].romact = mkLineChart(`chart-romact-${key}`, romActDs,
+      `${res.exercise.joint.charAt(0).toUpperCase()+res.exercise.joint.slice(1)} Angle (°)`,
+      "Activation (% MVC)");
 
-    charts[key].romact = mkLineChart(
-      `chart-romact-${key}`, romActDatasets,
-      `${res.exercise.joint.charAt(0).toUpperCase() + res.exercise.joint.slice(1)} Angle (°)`,
-      "Activation (% MVC)"
-    );
-
-    // ── ROM: Joint stress line chart ───────────────────────
-    const romStDatasets = [];
+    // ROM: joint stress
+    const romStDs = [];
     Object.keys(bm.stresses).forEach(j => {
       const color = JOINT_COLORS[j] || "#aaa";
-      romStDatasets.push({
-        label: j.charAt(0).toUpperCase() + j.slice(1) + " (BioMek)",
-        data: bm.stresses[j].map((v, i) => ({ x: angles[i], y: +(v/1000).toFixed(2) })),
-        borderColor: color, backgroundColor: "transparent",
-        borderWidth: 2, pointRadius: 0, tension: 0.4,
-      });
-      romStDatasets.push({
-        label: j.charAt(0).toUpperCase() + j.slice(1) + " (Traditional)",
-        data: tr.stresses[j].map((v, i) => ({ x: angles[i], y: +(v/1000).toFixed(2) })),
-        borderColor: color, backgroundColor: "transparent",
-        borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, tension: 0.4,
-      });
+      romStDs.push({ label: j.charAt(0).toUpperCase()+j.slice(1)+" (BioMek)",
+        data: bm.stresses[j].map((v,i) => ({x:angles[i],y:+(v/1000).toFixed(2)})),
+        borderColor:color, backgroundColor:"transparent", borderWidth:2, pointRadius:0, tension:0.4 });
+      romStDs.push({ label: j.charAt(0).toUpperCase()+j.slice(1)+" (Traditional)",
+        data: tr.stresses[j].map((v,i) => ({x:angles[i],y:+(v/1000).toFixed(2)})),
+        borderColor:color, backgroundColor:"transparent", borderWidth:1.5,
+        borderDash:[5,4], pointRadius:0, tension:0.4 });
     });
+    charts[key].romst = mkLineChart(`chart-romst-${key}`, romStDs,
+      `${res.exercise.joint.charAt(0).toUpperCase()+res.exercise.joint.slice(1)} Angle (°)`,
+      "Joint Stress (kPa)");
 
-    charts[key].romst = mkLineChart(
-      `chart-romst-${key}`, romStDatasets,
-      `${res.exercise.joint.charAt(0).toUpperCase() + res.exercise.joint.slice(1)} Angle (°)`,
-      "Joint Stress (kPa)"
-    );
+    // Bar: peak muscle activation
+    const barLabels = displayMuscles.map(m => MUSCLE_META[m]?.label || m);
+    charts[key].baract = mkBarChart(`chart-baract-${key}`, barLabels, [
+      { label:"Traditional",
+        data: displayMuscles.map(m => +(tr.peak_activations[m]||0).toFixed(1)),
+        backgroundColor: displayMuscles.map(m => (MUSCLE_META[m]?.color||"#aaa")+"55"),
+        borderColor:     displayMuscles.map(m => MUSCLE_META[m]?.color||"#aaa"), borderWidth:1 },
+      { label:"BioMek Device",
+        data: displayMuscles.map(m => +(bm.peak_activations[m]||0).toFixed(1)),
+        backgroundColor: displayMuscles.map(m => MUSCLE_META[m]?.color||"#aaa"),
+        borderColor:     displayMuscles.map(m => MUSCLE_META[m]?.color||"#aaa"), borderWidth:1 },
+    ], "Peak Activation (% MVC)");
 
-    // ── Bar: Peak muscle activation ────────────────────────
-    const barLabels = muscles.map(muscleLabel);
-    charts[key].baract = mkBarChart(
-      `chart-baract-${key}`, barLabels,
-      [
-        {
-          label: "Traditional",
-          data: muscles.map(m => +(tr.peak_activations[m] || 0).toFixed(1)),
-          backgroundColor: muscles.map(m => (MUSCLE_COLORS[m] || "#aaa") + "55"),
-          borderColor: muscles.map(m => MUSCLE_COLORS[m] || "#aaa"),
-          borderWidth: 1,
-        },
-        {
-          label: "BioMek Device",
-          data: muscles.map(m => +(bm.peak_activations[m] || 0).toFixed(1)),
-          backgroundColor: muscles.map(m => MUSCLE_COLORS[m] || "#aaa"),
-          borderColor: muscles.map(m => MUSCLE_COLORS[m] || "#aaa"),
-          borderWidth: 1,
-        }
-      ],
-      "Peak Activation (% MVC)"
-    );
-
-    // ── Bar: Peak joint stress ─────────────────────────────
+    // Bar: peak joint stress
     const joints = Object.keys(bm.peak_stresses);
-    const jLabels = joints.map(j => j.charAt(0).toUpperCase() + j.slice(1));
-    charts[key].barst = mkBarChart(
-      `chart-barst-${key}`, jLabels,
-      [
-        {
-          label: "Traditional",
-          data: joints.map(j => +((tr.peak_stresses[j] || 0) / 1000).toFixed(1)),
-          backgroundColor: joints.map(j => (JOINT_COLORS[j] || "#aaa") + "55"),
-          borderColor: joints.map(j => JOINT_COLORS[j] || "#aaa"),
-          borderWidth: 1,
-        },
-        {
-          label: "BioMek Device",
-          data: joints.map(j => +((bm.peak_stresses[j] || 0) / 1000).toFixed(1)),
-          backgroundColor: joints.map(j => JOINT_COLORS[j] || "#aaa"),
-          borderColor: joints.map(j => JOINT_COLORS[j] || "#aaa"),
-          borderWidth: 1,
-        }
-      ],
-      "Peak Stress (kPa)"
-    );
+    charts[key].barst = mkBarChart(`chart-barst-${key}`,
+      joints.map(j => j.charAt(0).toUpperCase()+j.slice(1)), [
+      { label:"Traditional",
+        data: joints.map(j => +((tr.peak_stresses[j]||0)/1000).toFixed(1)),
+        backgroundColor: joints.map(j => (JOINT_COLORS[j]||"#aaa")+"55"),
+        borderColor:     joints.map(j => JOINT_COLORS[j]||"#aaa"), borderWidth:1 },
+      { label:"BioMek Device",
+        data: joints.map(j => +((bm.peak_stresses[j]||0)/1000).toFixed(1)),
+        backgroundColor: joints.map(j => JOINT_COLORS[j]||"#aaa"),
+        borderColor:     joints.map(j => JOINT_COLORS[j]||"#aaa"), borderWidth:1 },
+    ], "Peak Stress (kPa)");
 
-    // ── Summary table ──────────────────────────────────────
+    // Summary table
     const tbl = $(`table-${key}`);
     if (tbl) {
-      let html = `<thead><tr>
-        <th>Metric</th>
-        <th>Traditional</th>
-        <th>BioMek</th>
-        <th>Change</th>
-      </tr></thead><tbody>`;
-
-      muscles.forEach(m => {
-        const tv = (tr.peak_activations[m] || 0).toFixed(1);
-        const dv = (bm.peak_activations[m] || 0).toFixed(1);
+      let html = `<thead><tr><th>Metric</th><th>Traditional</th><th>BioMek</th><th>Change</th></tr></thead><tbody>`;
+      displayMuscles.forEach(m => {
+        const tv = (tr.peak_activations[m]||0).toFixed(1);
+        const dv = (bm.peak_activations[m]||0).toFixed(1);
         const delta = pct(bm.peak_activations[m], tr.peak_activations[m]);
         const cls = delta > 0 ? "good" : (delta < -5 ? "bad" : "");
         html += `<tr>
-          <td style="color:${MUSCLE_COLORS[m]||'#aaa'}">${muscleLabel(m)} activation</td>
-          <td class="td-trad">${tv}% MVC</td>
-          <td class="td-dev">${dv}% MVC</td>
-          <td class="td-delta ${cls}">${fmtPct(delta)}</td>
-        </tr>`;
+          <td style="color:${MUSCLE_META[m]?.color||'#aaa'}">${MUSCLE_META[m]?.label||m}</td>
+          <td class="td-trad">${tv}% MVC</td><td class="td-dev">${dv}% MVC</td>
+          <td class="td-delta ${cls}">${fmtPct(delta)}</td></tr>`;
       });
-
       joints.forEach(j => {
-        const tv = ((tr.peak_stresses[j] || 0) / 1000).toFixed(1);
-        const dv = ((bm.peak_stresses[j] || 0) / 1000).toFixed(1);
+        const tv = ((tr.peak_stresses[j]||0)/1000).toFixed(1);
+        const dv = ((bm.peak_stresses[j]||0)/1000).toFixed(1);
         const delta = pct(bm.peak_stresses[j], tr.peak_stresses[j]);
         const cls = delta > 0 ? "good" : (delta < -5 ? "bad" : "");
         html += `<tr>
-          <td style="color:${JOINT_COLORS[j]||'#aaa'}">${j.charAt(0).toUpperCase() + j.slice(1)} stress</td>
-          <td class="td-trad">${tv} kPa</td>
-          <td class="td-dev">${dv} kPa</td>
-          <td class="td-delta ${cls}">${fmtPct(delta)}</td>
-        </tr>`;
+          <td style="color:${JOINT_COLORS[j]||'#aaa'}">${j.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())} stress</td>
+          <td class="td-trad">${tv} kPa</td><td class="td-dev">${dv} kPa</td>
+          <td class="td-delta ${cls}">${fmtPct(delta)}</td></tr>`;
       });
-
-      html += "</tbody>";
-      tbl.innerHTML = html;
+      tbl.innerHTML = html + "</tbody>";
     }
   });
 
-  // ── Update hero metrics (average across exercises) ─────────
   updateHeroMetrics(data);
   setLoading(false);
   startAnimation();
@@ -467,31 +357,23 @@ function updateHeroMetrics(data) {
 
   data.results.forEach(res => {
     const wt = res.traditional.peak_stresses.wrist || 1;
-    const wd = res.biomek.peak_stresses.wrist || 0;
-    wristRed.push(pct(wd, wt));
-
-    const gt = res.traditional.peak_activations.forearm_flexors || 1;
-    const gd = res.biomek.peak_activations.forearm_flexors || 0;
-    gripRed.push(pct(gd, gt));
-
+    wristRed.push(pct(res.biomek.peak_stresses.wrist, wt));
+    const gt = res.traditional.peak_activations.grip || 1;
+    gripRed.push(pct(res.biomek.peak_activations.grip, gt));
     const et = res.traditional.peak_stresses.elbow || 1;
-    const ed = res.biomek.peak_stresses.elbow || 0;
-    elbowRed.push(pct(ed, et));
+    elbowRed.push(pct(res.biomek.peak_stresses.elbow, et));
   });
 
-  const avg = arr => Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
-  $("m-wrist").textContent  = avg(wristRed) + "%";
-  $("m-grip").textContent   = avg(gripRed) + "%";
-  $("m-elbow").textContent  = avg(elbowRed) + "%";
+  const avg = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : 0;
+  $("m-wrist").textContent = avg(wristRed) + "%";
+  $("m-grip").textContent  = avg(gripRed)  + "%";
+  $("m-elbow").textContent = avg(elbowRed) + "%";
 
-  // Equivalent cable weight to match same primary muscle stimulus
-  // Primary muscles average ~77% of traditional activation → need 1/0.77 ≈ 1.30× weight
-  const equivLbs = Math.round(state.f_cable / 0.77);
-  const equivKg  = (equivLbs / 2.2046).toFixed(1);
-  $("m-equiv").textContent  = `${equivLbs} lbs (${equivKg} kg)`;
+  const equivLbs = Math.round(state.f_cable_lbs / 0.77);
+  $("m-equiv").textContent = fmtWeight(equivLbs);
 }
 
-// ── Loading state ─────────────────────────────────────────────
+// ── Loading ───────────────────────────────────────────────────
 function setLoading(on) {
   $("status-text").textContent = on ? "Simulating…" : "Up to date";
   document.querySelectorAll(".loading-overlay").forEach(el => {
@@ -499,30 +381,24 @@ function setLoading(on) {
   });
 }
 
-// ── Build API payload from state ─────────────────────────────
+// ── Build API payload ─────────────────────────────────────────
 function buildPayload() {
   const exercises = {};
   Object.keys(state.exercises).forEach(key => {
     const ex = state.exercises[key];
-    const primaries = ex.muscles_involved.filter(m => m !== "forearm_flexors");
-    const total = primaries.reduce((s, m) => s + (ex.muscle_weights[m] || 0), 0);
-    const weights = {};
-    primaries.forEach(m => {
-      weights[m] = total > 0 ? (ex.muscle_weights[m] || 0) / total : 1 / primaries.length;
-    });
     exercises[key] = {
       name: ex.name, joint: ex.joint,
       angle_range_deg: ex.angle_range_deg,
-      muscles_involved: ex.muscles_involved,
-      muscle_weights: weights,
+      muscles: ex.muscles,
+      grip_fmax: ex.grip_fmax || 600,
     };
   });
-
   return {
-    f_cable: state.f_cable * LBS_TO_N,   // lbs → N for simulation engine
+    f_cable_lbs: state.f_cable_lbs,
+    n_rom_points: 60,
     device: {
-      pad_from_wrist: state.pad_from_wrist / 100,   // cm → m
-      grip_force_fraction: state.grip_force_fraction / 100,
+      pad_from_wrist:       state.pad_from_wrist / 100,
+      grip_force_fraction:  state.grip_force_fraction / 100,
     },
     exercises,
   };
@@ -540,7 +416,7 @@ async function simulate() {
     const json = await resp.json();
     if (json.ok) renderResults(json.data);
     else {
-      console.error("Simulation error:", json.error);
+      console.error("Simulation error:", json.error, json.trace);
       $("status-text").textContent = "Error — check console";
       setLoading(false);
     }
@@ -556,75 +432,59 @@ function scheduleSimulate() {
   debounceTimer = setTimeout(simulate, 280);
 }
 
-// ── Wire up global sliders ────────────────────────────────────
+// ── Wire sliders ──────────────────────────────────────────────
 function wireSliders() {
   const sl = $("sl-fcable");
   sl.addEventListener("input", () => {
-    const v = parseInt(sl.value);
-    state.f_cable = v;
-    $("lbl-fcable").textContent = fmtWeight(v);
+    state.f_cable_lbs = parseInt(sl.value);
+    $("lbl-fcable").textContent = fmtWeight(state.f_cable_lbs);
     scheduleSimulate();
   });
 
   const slPad = $("sl-pad");
   slPad.addEventListener("input", () => {
-    const v = parseFloat(slPad.value);
-    state.pad_from_wrist = v;
-    $("lbl-pad").textContent = `${v} cm`;
+    state.pad_from_wrist = parseFloat(slPad.value);
+    $("lbl-pad").textContent = `${state.pad_from_wrist} cm`;
     scheduleSimulate();
   });
 
   const slGrip = $("sl-grip");
   slGrip.addEventListener("input", () => {
-    const v = parseInt(slGrip.value);
-    state.grip_force_fraction = v;
-    $("lbl-grip").textContent = `${v}%`;
+    state.grip_force_fraction = parseInt(slGrip.value);
+    $("lbl-grip").textContent = `${state.grip_force_fraction}%`;
     scheduleSimulate();
+  });
+
+  // Pause/resume animation
+  let _animPaused = false;
+  $("btn-anim-toggle").addEventListener("click", () => {
+    _animPaused = !_animPaused;
+    if (_animPaused) { stopAnimation(); $("btn-anim-toggle").textContent = "▶ Resume"; }
+    else             { startAnimation(); $("btn-anim-toggle").textContent = "⏸ Pause"; }
   });
 
   $("btn-reset").addEventListener("click", () => {
     state = JSON.parse(JSON.stringify(DEFAULTS));
-    // Reset slider DOM
-    $("sl-fcable").value = state.f_cable;
-    $("lbl-fcable").textContent = fmtWeight(state.f_cable);
+    $("sl-fcable").value = state.f_cable_lbs;
+    $("lbl-fcable").textContent = fmtWeight(state.f_cable_lbs);
     $("sl-pad").value = state.pad_from_wrist;
     $("lbl-pad").textContent = `${state.pad_from_wrist} cm`;
     $("sl-grip").value = state.grip_force_fraction;
     $("lbl-grip").textContent = `${state.grip_force_fraction}%`;
     activeExKey = "standard_curl";
-    buildSidebarTabs();
-    renderMuscleWeights();
-    switchMainTab(activeExKey);
+    buildSidebarTabs(); renderMuscleInfo(); switchMainTab(activeExKey);
     simulate();
   });
 
-  // Pause / resume animation
-  let _animPaused = false;
-  $("btn-anim-toggle").addEventListener("click", () => {
-    _animPaused = !_animPaused;
-    if (_animPaused) {
-      stopAnimation();
-      $("btn-anim-toggle").textContent = "▶ Resume";
-    } else {
-      startAnimation();
-      $("btn-anim-toggle").textContent = "⏸ Pause";
-    }
-  });
-
-  $("btn-reset").addEventListener("mouseenter", () => {
-    $("btn-reset").style.borderColor = "var(--green)";
-    $("btn-reset").style.color = "var(--green-lit)";
-  });
-  $("btn-reset").addEventListener("mouseleave", () => {
-    $("btn-reset").style.borderColor = "var(--border)";
-    $("btn-reset").style.color = "var(--text-muted)";
-  });
+  const btn = $("btn-reset");
+  btn.addEventListener("mouseenter", () => { btn.style.borderColor="var(--green)"; btn.style.color="var(--green-lit)"; });
+  btn.addEventListener("mouseleave", () => { btn.style.borderColor="var(--border)"; btn.style.color="var(--text-muted)"; });
 }
 
 // ── Boot ──────────────────────────────────────────────────────
 function init() {
   buildSidebarTabs();
-  renderMuscleWeights();
+  renderMuscleInfo();
   buildMainPanels();
   wireSliders();
   simulate();

@@ -7,6 +7,14 @@
 // ── Segment lengths in canvas pixels ─────────────────────────
 const PX = { upperArm: 88, forearm: 72, hand: 26 };
 
+// arm26 muscle colours (mirrors app.js MUSCLE_META)
+const ANIM_MUSCLE_COLORS = {
+  BIClong:"#e74c3c", BICshort:"#c0392b", BRA:"#e67e22",
+  TRIlong:"#3498db", TRIlat:"#2980b9",  TRImed:"#1abc9c",
+  DELT_lat:"#3498db", DELT_ant:"#2980b9", SUPSP:"#8e44ad",
+  grip:"#95a5a6",
+};
+
 // ── Animation state ───────────────────────────────────────────
 let _animId    = null;
 let _animAngle = 10;
@@ -109,12 +117,12 @@ function _drawPanel(canvasId, mode, angleDeg) {
   const wristS    = _lerp(data?.stresses?.wrist,    angles, angleDeg);
   const elbowS    = _lerp(data?.stresses?.elbow,    angles, angleDeg);
   const shoulderS = _lerp(data?.stresses?.shoulder, angles, angleDeg);
-  const gripAct   = _lerp(data?.activations?.forearm_flexors, angles, angleDeg);
+  const gripAct   = _lerp(data?.activations?.grip,  angles, angleDeg);
 
   const maxWrist    = tradRef?.peak_stresses?.wrist    || 1;
   const maxElbow    = tradRef?.peak_stresses?.elbow    || 1;
   const maxShoulder = tradRef?.peak_stresses?.shoulder || 1;
-  const maxGrip     = tradRef?.peak_activations?.forearm_flexors || 1;
+  const maxGrip     = tradRef?.peak_activations?.grip  || 1;
 
   const ex       = state?.exercises?.[activeExKey];
   const isLateral = ex?.joint === 'shoulder';
@@ -304,6 +312,36 @@ function _joint(ctx, pos, baseR, frac, label, side) {
       ctx.textAlign = 'center';
       ctx.fillText(label, pos.x, pos.y + glowR + 10);
     }
+  }
+}
+
+// Like _joint but with a fixed custom color (for epicondyle, which has its own colour scheme)
+function _jointCustomColor(ctx, pos, baseR, frac, color, label, side) {
+  frac = Math.max(0, Math.min(1, frac));
+  const glowR = baseR + frac * 10;
+
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur  = 4 + frac * 18;
+  ctx.fillStyle   = color;
+  ctx.globalAlpha = 0.5 + frac * 0.5;
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, glowR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = '#e2e8f0';
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y, baseR * 0.38, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (label && side) {
+    ctx.font = 'bold 8px -apple-system,sans-serif';
+    ctx.fillStyle = color;
+    if (side === 'right') { ctx.textAlign = 'left';  ctx.fillText(label, pos.x + glowR + 2, pos.y + 3); }
+    if (side === 'left')  { ctx.textAlign = 'right'; ctx.fillText(label, pos.x - glowR - 2, pos.y + 3); }
+    if (side === 'above') { ctx.textAlign = 'center'; ctx.fillText(label, pos.x, pos.y - glowR - 3); }
+    if (side === 'below') { ctx.textAlign = 'center'; ctx.fillText(label, pos.x, pos.y + glowR + 10); }
   }
 }
 

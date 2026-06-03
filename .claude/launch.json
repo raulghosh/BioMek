@@ -5,7 +5,7 @@
       "name": "biomek-web",
       "runtimeExecutable": "python",
       "runtimeArgs": ["web/app.py"],
-      "port": 5050
+      "port": 5051
     }
   ]
 }

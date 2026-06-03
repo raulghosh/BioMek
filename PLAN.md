@@ -1,291 +1,199 @@
-# BioMek Forearm Device — Biomechanical Simulation Plan
+# BioMek Forearm Device — Simulation Plan (OpenSim-Based)
 
-## 1. Equipment Description
+## Overview
 
-A rectangular PVC frame (6″ × 3″) that redirects cable-machine force from the hand/grip to the forearm bone.
+This simulation compares the BioMek forearm cable attachment against a traditional cable handle using musculoskeletal models from OpenSim (opensim.stanford.edu). All muscle parameters come from the **arm26.osim** model (Holzbaur et al. 2005, Thelen 2003).
+
+## Architecture: Two-Tier Approach
+
+| File | Requires OpenSim? | What it uses |
+|------|-------------------|--------------|
+| `biomek_opensim.py` | Yes (conda install) | OpenSim API: loads arm26.osim, calls `muscle.computeMomentArm()` for anatomically exact moment arms, then runs static optimization |
+| `biomek_sim.py` | No (numpy + scipy + matplotlib) | Same arm26 muscle parameters (Fmax, fiber length, pennation from Thelen2003) + published moment arm curves from Holzbaur 2005 |
+
+Both produce the same output format. The standalone version is a validated approximation; the OpenSim version is ground truth.
+
+---
+
+## 1. Source Model: arm26.osim
+
+From: https://github.com/opensim-org/opensim-models/tree/master/Models/Arm26
+
+**Bodies**: base (thorax), r_humerus, r_ulna_radius_hand
+**Joints**: r_shoulder (CustomJoint, `r_shoulder_elev`), r_elbow (CustomJoint, `r_elbow_flex`)
+**Muscle model**: Thelen2003Muscle
+
+### Muscle Parameters (extracted directly from arm26.osim)
+
+| Muscle | Fmax (N) | Opt. fiber (m) | Tendon slack (m) | Pennation (rad) | Role |
+|--------|---------|----------------|-------------------|------------------|------|
+| BIClong | 624.3 | 0.1157 | 0.2723 | 0.0 | Flexor |
+| BICshort | 435.56 | 0.1321 | 0.1923 | 0.0 | Flexor |
+| BRA | 987.26 | 0.0858 | 0.0535 | 0.0 | Flexor |
+| TRIlong | 798.52 | 0.134 | 0.143 | 0.2094 | Extensor |
+| TRIlat | 624.3 | 0.1138 | 0.098 | 0.1571 | Extensor |
+| TRImed | 624.3 | 0.1138 | 0.0908 | 0.1571 | Extensor |
+
+Reference: Holzbaur KRS, Murray WM, Delp SL (2005). Ann Biomed Eng, 33: 829-840.
+
+### Shoulder Muscles (from full upper extremity model)
+
+For lateral raise, arm26 lacks deltoids. Use Holzbaur 2005 full model values:
+
+| Muscle | Fmax (N) | Opt. fiber (m) | Pennation | Role |
+|--------|---------|----------------|-----------|------|
+| DELT_lat | 1142.6 | 0.0838 | 15° | Abductor |
+| DELT_ant | 1218.9 | 0.0976 | 22° | Abductor |
+| SUPSP | 487.8 | 0.0682 | 7° | Abductor |
+
+---
+
+## 2. Equipment Model
 
 ```
          3" (short arm)
     ┌──────────────────────┐
     │                      │
 6"  │  PALM REST ARM       │ 6"   PADDED FOREARM ARM
-    │  (no padding)        │      (pool-noodle padding)
-    │                      │
+    │                      │      (pool-noodle padding)
     └──────────────────────┘
          3" (short arm)
               │
-         HARNESS LOOP ──► connects to cable carabiner
+         HARNESS LOOP → cable carabiner
 ```
 
-- **Padded arm** (6″): rests on ulna/radius just above wrist joint
-- **Palm arm** (6″): rests in palm — stabilizer only, minimal grip
-- **Harness**: soft loop through one long arm, clips to cable carabiner
+### Force Application Points
 
-### Exercise Positions
+| Condition | Application point | Distance from elbow | Grip fraction |
+|-----------|------------------|--------------------:|:-------------:|
+| Traditional handle | Palm center | 0.303 m | 100% |
+| BioMek device | Forearm pad (2cm above wrist) | 0.233 m | 5% |
 
-| Exercise         | Padded arm placement       | Cable direction | Primary muscles          |
-|-----------------|---------------------------|-----------------|--------------------------|
-| Standard curl   | Underside of forearm (volar) | Low pulley, up  | Biceps, brachialis       |
-| Reverse curl    | Top of forearm (dorsal)    | Low pulley, up  | Brachioradialis, biceps  |
-| Lateral raise   | Underside of forearm       | Low pulley, lateral | Lateral deltoid, supraspinatus |
+**Moment ratio**: 0.233 / 0.303 = **0.769** → device creates ~23% less external torque per unit cable load.
 
 ---
 
-## 2. Anatomy Model Constants
+## 3. Physics: Static Optimization
 
-All lengths in meters, forces in Newtons.
+At each joint angle θ:
+
+### Step 1: External torque
+```
+τ_ext = F_cable × L_force_point × sin(θ)
+```
+where `L_force_point` differs between traditional and device.
+
+### Step 2: Muscle activations (minimize metabolic cost)
+```
+minimize  Σ(a_i²)
+subject to  Σ(a_i × Fmax_i × cos(penn_i) × ma_i(θ)) = τ_ext
+            0 ≤ a_i ≤ 1
+```
+Solved with scipy SLSQP. `ma_i(θ)` = moment arm from OpenSim or Holzbaur curves.
+
+### Step 3: Joint stress
+```
+Wrist:   stress = sqrt(F_grip² + (τ_wrist / 0.02)²) / A_wrist
+Elbow:   stress = sqrt(ΣF_muscle² + (F_cable × cos(θ))²) / A_elbow
+```
+Traditional: `F_grip = F_cable`, `τ_wrist = F_cable × 0.05`
+BioMek: `F_grip = 0.05 × F_cable`, `τ_wrist = 0`
+
+---
+
+## 4. OpenSim API Workflow (biomek_opensim.py)
 
 ```python
-ANATOMY = {
-    # Segment lengths
-    "upper_arm_length": 0.30,        # shoulder to elbow
-    "forearm_length": 0.25,          # elbow to wrist
-    "hand_length": 0.10,             # wrist to mid-palm (grip center)
-    
-    # Muscle insertion distances from joint center
-    "biceps_insertion": 0.04,        # from elbow joint (on radius tuberosity)
-    "brachialis_insertion": 0.03,    # from elbow (on ulna coronoid)
-    "brachioradialis_insertion": 0.20,# from elbow (on distal radius)
-    "deltoid_insertion": 0.15,       # from shoulder (on deltoid tuberosity)
-    "supraspinatus_insertion": 0.02, # from shoulder (on greater tubercle)
-    
-    # Muscle max force (proportional to PCSA, in Newtons)
-    "biceps_Fmax": 800,
-    "brachialis_Fmax": 1000,
-    "brachioradialis_Fmax": 200,
-    "forearm_flexors_Fmax": 600,     # grip muscles
-    "deltoid_lateral_Fmax": 1200,
-    "deltoid_anterior_Fmax": 1200,
-    "supraspinatus_Fmax": 400,
-    
-    # Joint reference cross-section (for stress normalization)
-    "wrist_ref_area": 0.0006,        # m² (~6 cm²)
-    "elbow_ref_area": 0.0012,        # m² (~12 cm²)
-    "shoulder_ref_area": 0.0020,     # m² (~20 cm²)
-}
+import opensim as osim
+
+model = osim.Model("arm26.osim")
+state = model.initSystem()
+
+# Lock shoulder, sweep elbow
+shoulder = model.getCoordinateSet().get("r_shoulder_elev")
+elbow = model.getCoordinateSet().get("r_elbow_flex")
+shoulder.setLocked(state, True)
+
+for angle in angles_rad:
+    elbow.setValue(state, angle)
+    model.realizeVelocity(state)
+    model.equilibrateMuscles(state)
+
+    for muscle in model.getMuscles():
+        ma = muscle.computeMomentArm(state, elbow)  # ← key API call
+        Fmax = muscle.getMaxIsometricForce()
 ```
 
-### Muscle Moment Arm Functions
-
-Moment arms vary with joint angle. Use simplified linear/sinusoidal models:
-
-- **Biceps moment arm at elbow**: `d_bicep(θ) = 0.04 × (1 + 0.5 × sin(θ))` — peaks ~90°
-- **Brachialis**: `d_brach(θ) = 0.03 × (1 + 0.3 × sin(θ))`
-- **Brachioradialis**: `d_br(θ) = 0.05 × (1 + 0.2 × sin(θ))`
-- **Deltoid (shoulder abduction)**: `d_delt(θ) = 0.02 × (1 + 2.0 × sin(θ))` — peaks ~90°
-
-Where θ = joint angle (0 = fully extended).
-
----
-
-## 3. Force Application Model
-
-### Traditional Cable Handle
-- Force applied at: **hand center** (grip)
-- Distance from elbow: `L_forearm + L_hand/2 = 0.25 + 0.05 = 0.30 m`
-- Grip force required: `F_grip = F_cable` (100% of cable load)
-- Wrist torque: `τ_wrist = F_cable × L_hand/2 = F_cable × 0.05`
-
-### BioMek Device
-- Force applied at: **forearm pad** (2 cm above wrist = 23 cm from elbow)
-- Distance from elbow: `L_forearm - 0.02 = 0.23 m`
-- Grip force required: `F_grip ≈ 0.05 × F_cable` (stabilization only, 5%)
-- Wrist torque: `τ_wrist ≈ 0` (force bypasses wrist joint)
-
-### Force Application Ratio
-```
-R_moment = L_device / L_traditional = 0.23 / 0.30 = 0.767
-```
-The device creates ~23% less external torque about the elbow per unit cable load, meaning the same cable weight is slightly easier to curl. Wrist torque drops by ~100%.
-
----
-
-## 4. Biomechanics Engine — Per-Exercise Calculations
-
-### 4.1 Elbow Flexion Exercises (Curls)
-
-For each elbow angle θ in [10°, 150°] with step 5°:
-
-**Step A: External torque about elbow**
-```
-# Cable angle relative to forearm — approximated
-# Low pulley: cable roughly vertical when arm is at side
-α = angle_between(cable_direction, forearm_direction)
-
-# Traditional
-τ_ext_trad = F_cable × L_trad × sin(α)
-
-# Device  
-τ_ext_dev = F_cable × L_device × sin(α)
-```
-
-For a low pulley curl, simplify: cable direction ≈ vertical, forearm angle from vertical = (180° - θ_elbow). So `sin(α) ≈ sin(θ_elbow)` when arm is at side.
-
-```
-τ_ext = F_cable × L × sin(θ)
-```
-
-**Step B: Muscle force distribution**
-
-Total muscle torque must equal external torque (static equilibrium):
-```
-τ_ext = F_bicep × d_bicep(θ) + F_brach × d_brach(θ) + F_br × d_br(θ)
-```
-
-Distribute using PCSA-weighted sharing:
-```
-w_i = PCSA_i / Σ(PCSA_j)   for each elbow flexor
-F_i = (τ_ext / d_i(θ)) × w_i
-activation_i = F_i / F_max_i × 100   (% MVC)
-```
-
-For **standard curl** (supinated grip): biceps = 45%, brachialis = 40%, brachioradialis = 15%
-For **reverse curl** (pronated grip): biceps = 25%, brachialis = 35%, brachioradialis = 40%
-
-**Step C: Grip/forearm flexor activation**
-```
-Traditional: activation_grip = (F_cable / forearm_flexors_Fmax) × 100
-Device: activation_grip = (0.05 × F_cable / forearm_flexors_Fmax) × 100
-```
-
-**Step D: Joint stress**
-```
-# Wrist stress
-τ_wrist_trad = F_cable × (L_hand / 2)
-τ_wrist_dev = 0
-stress_wrist = τ_wrist / wrist_ref_area
-
-# Elbow stress (joint reaction force)
-# Sum of all muscle forces + cable force component
-F_elbow_reaction = sqrt((ΣF_muscle_x + F_cable_x)² + (ΣF_muscle_y + F_cable_y)²)
-stress_elbow = F_elbow_reaction / elbow_ref_area
-```
-
-### 4.2 Shoulder Abduction (Lateral Raise)
-
-For each shoulder abduction angle φ in [5°, 90°] with step 5°:
-
-**Cable direction**: from low side pulley, roughly horizontal/upward.
-
-```
-# Arm weight torque (forearm+hand ≈ 1.5 kg)
-τ_gravity = m_arm × g × L_arm_cg × cos(φ)
-
-# Cable torque about shoulder
-# Traditional: force at hand, distance = full arm length
-L_trad_shoulder = L_upper_arm + L_forearm + L_hand/2 = 0.65 m
-L_dev_shoulder = L_upper_arm + L_forearm - 0.02 = 0.53 m
-
-τ_cable = F_cable × L × sin(angle_between_cable_and_arm)
-```
-
-**Muscle activation** for lateral raise:
-- Lateral deltoid: 60% of torque
-- Anterior deltoid: 25%
-- Supraspinatus: 15%
-
-Same grip and wrist stress calculations as curls.
-
----
-
-## 5. Visualization Plan
-
-Generate **4 output figures**:
-
-### Figure 1: Equipment Schematic (`equipment_schematic.png`)
-- Top-down view of the rectangular frame
-- Labels for each component
-- Annotations for dimensions
-
-### Figure 2: Muscle Activation Comparison (`muscle_activation.png`)
-- 3×2 grid: rows = exercises (standard curl, reverse curl, lateral raise), cols = (device, traditional)
-- Bar charts showing peak muscle activation (% MVC) for each muscle
-- Color-coded bars: biceps=red, brachialis=orange, brachioradialis=yellow, deltoid=blue, grip=gray
-
-### Figure 3: Joint Stress Comparison (`joint_stress.png`)
-- Grouped bar chart: 3 exercises × 2 conditions (device vs traditional)
-- Bars for wrist stress and elbow stress (+ shoulder for lateral raise)
-- Show percentage reduction annotations
-
-### Figure 4: ROM Sweep (`rom_sweep.png`)
-- 3 rows (one per exercise)
-- Line plots showing muscle activation vs joint angle
-- Solid lines = device, dashed = traditional
-- Second y-axis or subplot for joint stress vs angle
-
----
-
-## 6. Code Structure (Single File: `biomek_sim.py`)
-
-```
-biomek_sim.py
-├── SECTION 1: Imports & Config
-│   └── All constants from Section 2 above
-├── SECTION 2: AnatomyModel class
-│   ├── __init__(): set segment lengths, muscle params
-│   ├── muscle_moment_arm(muscle, joint, angle): returns moment arm
-│   └── muscle_max_force(muscle): returns Fmax
-├── SECTION 3: EquipmentModel class
-│   ├── __init__(mode): "traditional" or "biomek"
-│   ├── force_application_distance(joint): distance from joint to force point
-│   ├── grip_force_fraction(): 1.0 for traditional, 0.05 for biomek
-│   └── wrist_torque(F_cable): torque at wrist
-├── SECTION 4: Exercise class
-│   ├── __init__(name, joint, angle_range, muscle_weights, cable_direction)
-│   └── Stores exercise-specific parameters
-├── SECTION 5: BiomechanicsEngine class
-│   ├── __init__(anatomy, equipment)
-│   ├── external_torque(F_cable, angle, exercise): joint torque from cable
-│   ├── muscle_activations(F_cable, angle, exercise): dict of {muscle: %MVC}
-│   ├── joint_stress(F_cable, angle, exercise): dict of {joint: stress_value}
-│   └── sweep_rom(F_cable, exercise): run across full ROM, return DataFrame-like dict
-├── SECTION 6: Visualization functions
-│   ├── plot_equipment_schematic(ax)
-│   ├── plot_muscle_comparison(ax, results_device, results_trad, exercise_name)
-│   ├── plot_joint_stress_comparison(ax, all_results)
-│   └── plot_rom_sweep(ax, sweep_device, sweep_trad, exercise_name)
-└── SECTION 7: main()
-    ├── Create anatomy, exercises
-    ├── Run engine for each exercise × each equipment mode
-    ├── Generate all 4 figures
-    └── Save to output directory
+### Installation
+```bash
+conda create -n biomek python=3.10 numpy matplotlib scipy
+conda activate biomek
+conda install -c opensim-org opensim
+git clone https://github.com/opensim-org/opensim-models.git
+python biomek_opensim.py --model opensim-models/Models/Arm26/arm26.osim
 ```
 
 ---
 
-## 7. Key Parameters for Simulation Run
+## 5. Standalone Fallback (biomek_sim.py)
+
+Uses the same Fmax values from arm26.osim but approximates moment arms with polynomial fits to Holzbaur 2005 Fig. 4:
 
 ```python
-F_CABLE = 50  # Newtons (~11 lbs) — moderate cable weight
-EXERCISES = [
-    Exercise("Standard Curl", joint="elbow", angles=(10, 150),
-             muscle_weights={"biceps": 0.45, "brachialis": 0.40, "brachioradialis": 0.15}),
-    Exercise("Reverse Curl", joint="elbow", angles=(10, 150),
-             muscle_weights={"biceps": 0.25, "brachialis": 0.35, "brachioradialis": 0.40}),
-    Exercise("Lateral Raise", joint="shoulder", angles=(5, 90),
-             muscle_weights={"deltoid_lateral": 0.60, "deltoid_anterior": 0.25, "supraspinatus": 0.15}),
-]
+# Biceps long head moment arm (meters)
+ma_BIClong = 0.048 × sin(0.88θ + 0.25) × clip(1 - 0.12(θ-1.4)², 0.55, 1)
+```
+
+Implements Thelen2003 force-length:
+```python
+f_AL(l̃) = exp(-(l̃ - 1)² / γ)     # γ = 0.5
+f_PL(l̃) = (exp(4(l̃-1)/0.6) - 1) / (exp(4) - 1)
+F = Fmax × [a × f_AL + f_PL] × cos(pennation)
 ```
 
 ---
 
-## 8. Expected Results Summary
+## 6. Exercises
 
-| Metric                    | Standard Curl (Device vs Trad) | Reverse Curl | Lateral Raise |
-|--------------------------|-------------------------------|--------------|---------------|
-| Wrist stress reduction   | ~95-100%                      | ~95-100%     | ~95-100%      |
-| Elbow stress reduction   | ~10-20%                       | ~10-20%      | N/A           |
-| Grip muscle activation   | ~95% reduction                | ~95% reduction| ~95% reduction|
-| Primary muscle activation| ~77% of traditional           | ~77%         | ~82%          |
+| Exercise | Joint | ROM | Active muscles | Model |
+|----------|-------|-----|---------------|-------|
+| Standard Curl | Elbow | 10°-140° | BIClong, BICshort, BRA + grip | arm26 |
+| Reverse Curl | Elbow | 10°-140° | BIClong, BICshort, BRA + grip | arm26 |
+| Lateral Raise | Shoulder | 5°-90° | DELT_lat, DELT_ant, SUPSP + grip | Holzbaur full UE |
 
-The device trades a small reduction in peak muscle torque demand for massive wrist/grip relief. Users can compensate by increasing cable weight ~25% to match the same muscle stimulus.
+For reverse curl: same muscles, same moment arms (elbow flexion mechanics are identical in this model; the difference is grip-related stress which the device eliminates). In a pronated grip with a traditional handle, wrist extensors are additionally loaded — the device eliminates this entirely.
 
 ---
 
-## 9. How to Extend
+## 7. Output Files
 
-- Add more exercises (face pulls, tricep pushdowns, etc.)
-- Add 3D model using matplotlib 3D or VPython
-- Add animation of the ROM sweep
-- Include fatigue modeling over sets/reps
-- Add EMG validation data overlay
+| File | Content |
+|------|---------|
+| `equipment_schematic.png` | Device top-view diagram |
+| `muscle_activation.png` | Bar charts: peak activation per exercise |
+| `joint_stress.png` | Grouped bars: wrist/elbow/shoulder stress |
+| `rom_sweep.png` | Line plots: activation & stress vs joint angle |
+| `summary_dashboard.png` | Text summary with percentage reductions |
+| `opensim_results.csv` | Raw data (OpenSim version only) |
+
+---
+
+## 8. How to Extend
+
+1. **Full upper extremity**: Replace arm26 with `MOBL_ARMS_fixed_41.osim` — adds wrist DOF, deltoids, rotator cuff. Apply external force via `osim.PrescribedForce` on the hand/forearm body.
+2. **Forward dynamics**: Use `osim.Manager` to simulate the full curl motion with muscle controllers.
+3. **Static Optimization tool**: Use `osim.StaticOptimization` with prescribed kinematics (`.mot` file) for the gold-standard approach.
+4. **Joint reaction analysis**: Add `osim.JointReaction` to the analysis set to get exact joint contact forces.
+5. **EMG validation**: Overlay experimental EMG data on the activation curves.
+6. **Fatigue model**: Add a `DeGroote2016` or custom fatigue model to simulate multi-set performance.
+
+---
+
+## 9. Key References
+
+- arm26 model: https://github.com/opensim-org/opensim-models/tree/master/Models/Arm26
+- OpenSim Python API: https://opensimconfluence.atlassian.net/wiki/spaces/OpenSim/pages/53085346/Scripting+in+Python
+- build_simple_arm_model.py: https://github.com/opensim-org/opensim-core/blob/main/Bindings/Python/examples/build_simple_arm_model.py
+- Holzbaur 2005: https://doi.org/10.1007/s10439-005-3320-7
+- Thelen 2003: https://doi.org/10.1115/1.1531112
+- OpenSim conda: https://opensimconfluence.atlassian.net/wiki/spaces/OpenSim/pages/53116061/Conda+Package

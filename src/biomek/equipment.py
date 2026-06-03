@@ -1,44 +1,45 @@
 """Equipment models: traditional cable handle vs BioMek forearm device."""
 
-from .anatomy import SEGMENTS, load_config
-from pathlib import Path
+from .anatomy import load_config, SEGMENTS
 
 _cfg = load_config()
 _dev = _cfg["device"]
 
 DEVICE_PAD_FROM_WRIST: float = _dev["pad_from_wrist"]
-DEVICE_GRIP_FRACTION: float = _dev["grip_force_fraction"]
+DEVICE_GRIP_FRACTION:  float = _dev["grip_force_fraction"]
 
-FOREARM_LENGTH: float = SEGMENTS["forearm_length"]
-HAND_GRIP_CENTER: float = SEGMENTS["hand_grip_center"]
-UPPER_ARM_LENGTH: float = SEGMENTS["upper_arm_length"]
+FOREARM_LENGTH:    float = SEGMENTS["forearm_length"]
+HAND_GRIP_CENTER:  float = SEGMENTS["hand_grip_center"]
+UPPER_ARM_LENGTH:  float = SEGMENTS["upper_arm_length"]
 
 
 class EquipmentModel:
-    """Models force application for traditional handle or BioMek device."""
+    """Force-application geometry for traditional handle or BioMek device."""
 
     def __init__(self, mode: str = "traditional"):
         assert mode in ("traditional", "biomek"), f"Unknown mode: {mode}"
         self.mode = mode
 
-    def force_distance_from_elbow(self) -> float:
-        """Distance (m) from elbow to the cable force application point."""
-        if self.mode == "traditional":
-            return FOREARM_LENGTH + HAND_GRIP_CENTER
-        return FOREARM_LENGTH - DEVICE_PAD_FROM_WRIST
+    @property
+    def label(self) -> str:
+        return "Traditional" if self.mode == "traditional" else "BioMek"
 
-    def force_distance_from_shoulder(self) -> float:
-        """Distance (m) from shoulder to cable force application point."""
+    def elbow_force_distance(self) -> float:
+        """Distance (m) from elbow joint to cable application point."""
         if self.mode == "traditional":
-            return UPPER_ARM_LENGTH + FOREARM_LENGTH + HAND_GRIP_CENTER
-        return UPPER_ARM_LENGTH + FOREARM_LENGTH - DEVICE_PAD_FROM_WRIST
+            return FOREARM_LENGTH + HAND_GRIP_CENTER          # 0.303 m
+        return FOREARM_LENGTH - DEVICE_PAD_FROM_WRIST         # 0.233 m
 
-    def grip_force_fraction(self) -> float:
-        """Fraction of cable force borne by grip."""
+    def shoulder_force_distance(self) -> float:
+        """Distance (m) from shoulder joint to cable application point."""
+        if self.mode == "traditional":
+            return UPPER_ARM_LENGTH + FOREARM_LENGTH + HAND_GRIP_CENTER   # 0.584 m
+        return UPPER_ARM_LENGTH + FOREARM_LENGTH - DEVICE_PAD_FROM_WRIST  # 0.514 m
+
+    def grip_fraction(self) -> float:
+        """Fraction of cable force carried by grip."""
         return 1.0 if self.mode == "traditional" else DEVICE_GRIP_FRACTION
 
     def wrist_torque(self, f_cable: float) -> float:
-        """Torque (N·m) at the wrist from cable force."""
-        if self.mode == "traditional":
-            return f_cable * HAND_GRIP_CENTER
-        return 0.0
+        """Torque (N·m) at the wrist from the cable load."""
+        return f_cable * HAND_GRIP_CENTER if self.mode == "traditional" else 0.0

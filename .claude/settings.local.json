@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python web/app.py)",
+      "Bash(curl -s http://localhost:5050/api/debug)",
+      "Bash(curl -s -X POST http://localhost:5050/api/simulate -H \"Content-Type: application/json\" -d '{\"f_cable_lbs\":11,\"n_rom_points\":5,\"device\":{\"pad_from_wrist\":0.02,\"grip_force_fraction\":0.05},\"exercises\":{\"standard_curl\":{\"name\":\"Standard Curl\",\"joint\":\"elbow\",\"angle_range_deg\":[10,140],\"muscles\":[\"BIClong\",\"BICshort\",\"BRA\",\"TRIlong\",\"TRIlat\",\"TRImed\"],\"grip_fmax\":600}}}')",
+      "PowerShell($content = Get-Content \"C:\\\\Users\\\\rghosh\\\\OneDrive - Veritiv Operating Company\\\\Documents\\\\BioMek\\\\web\\\\app.py\" -Raw; $content.Length; $content.IndexOf\\(\"api/debug\"\\))",
+      "PowerShell(python \"C:\\\\Users\\\\rghosh\\\\OneDrive - Veritiv Operating Company\\\\Documents\\\\BioMek\\\\web\\\\app.py\" --help 2>&1)"
+    ]
+  }
+}

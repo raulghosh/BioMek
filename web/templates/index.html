@@ -71,26 +71,22 @@
       </div>
     </div>
 
-    <!-- Exercise selector + muscle weights -->
+    <!-- Exercise selector -->
     <div class="panel">
-      <div class="panel-header">🏋 Exercise Parameters</div>
+      <div class="panel-header">🏋 Exercise</div>
       <div class="panel-body">
         <div class="exercise-tabs" id="ex-tabs"></div>
-        <div id="muscle-weight-section" class="muscle-weights"></div>
-        <div class="warn-text" id="weight-warn">⚠ Weights should sum to 100%</div>
       </div>
     </div>
 
-    <!-- Anatomy reference -->
+    <!-- Active muscles (read-only — set by static optimizer) -->
     <div class="panel">
-      <div class="panel-header">🦴 Anatomy Reference</div>
-      <div class="panel-body" style="gap:8px;">
-        <div class="control-row">
-          <div class="control-label">Forearm Length <span id="lbl-forearm">25 cm</span></div>
-          <input type="range" id="sl-forearm" min="20" max="35" step="0.5" value="25" disabled style="opacity:0.4;cursor:default;">
-        </div>
-        <div style="font-size:10px;color:var(--text-muted)">
-          Anatomy values are locked to validated defaults. Contact us for custom modeling.
+      <div class="panel-header">💪 Active Muscles</div>
+      <div class="panel-body" style="gap:4px;">
+        <div id="muscle-info-section"></div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:6px;line-height:1.5;">
+          Activations solved by static optimization (minimize &Sigma;a²).
+          Source: arm26.osim · Holzbaur 2005 · Thelen2003 muscle model.
         </div>
       </div>
     </div>
