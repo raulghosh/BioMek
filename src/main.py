@@ -6,7 +6,7 @@ from pathlib import Path
 from biomek.anatomy import load_config
 from biomek.equipment import EquipmentModel
 from biomek.exercises import load_exercises
-from biomek.engine import BiomechanicsEngine
+from biomek.engine import BiomechanicsEngine, f_cable_for_torque
 from biomek import visualization as viz
 
 ROOT       = Path(__file__).parents[1]
@@ -35,9 +35,20 @@ def main():
     all_results = []
 
     for ex in exercises:
+        # Equal-torque comparison: find the cable force BioMek needs to match
+        # the joint torque that traditional produces at the reference load.
+        target_torque = f_cable_for_torque(1.0, eq_trad, ex) * f_cable  # = f_cable * L_trad
+        # (f_cable_for_torque with target=1 gives L, so multiply back by f_cable)
+        target_torque = (eq_trad.elbow_force_distance() if ex.joint == "elbow"
+                         else eq_trad.shoulder_force_distance()) * f_cable
+        f_dev = f_cable_for_torque(target_torque, eq_dev, ex)
+
         print(f"--- {ex.name} ---")
+        print(f"  Equal-torque: Trad {f_cable/LBS_TO_N:.1f} lbs  "
+              f"BioMek {f_dev/LBS_TO_N:.1f} lbs  (target τ = {target_torque:.1f} N·m)")
+
         res_trad = BiomechanicsEngine(eq_trad).run_simulation(ex, f_cable, n_pts)
-        res_dev  = BiomechanicsEngine(eq_dev).run_simulation(ex, f_cable, n_pts)
+        res_dev  = BiomechanicsEngine(eq_dev).run_simulation(ex, f_dev, n_pts)
         all_results.append((ex, res_dev, res_trad))
 
         active = [m for m in ex.muscles if ex.muscle_db[m]["role"] != "extensor"]
@@ -45,7 +56,9 @@ def main():
             name = m if m == "grip" else ex.muscle_db[m]["full_name"]
             pt = res_trad["peak_activations"].get(m, 0)
             pd = res_dev["peak_activations"].get(m, 0)
-            print(f"  {name:28s}  Trad: {pt:5.1f}%  Device: {pd:5.1f}%")
+            diff = pd - pt
+            sign = "+" if diff >= 0 else ""
+            print(f"  {name:28s}  Trad: {pt:5.1f}%  Device: {pd:5.1f}%  ({sign}{diff:.1f}%)")
 
         for j in ["wrist", "elbow", "shoulder"]:
             st = res_trad.get(f"peak_{j}_stress", 0)
@@ -54,6 +67,13 @@ def main():
                 red = (1 - sd / st) * 100
                 print(f"  {j.title():12s} stress   "
                       f"Trad: {st/1000:6.1f} kPa  Device: {sd/1000:6.1f} kPa  (-{red:.0f}%)")
+        for k, label in [("peak_medial_epicondyle_stress", "Medial epicondyle"),
+                          ("peak_lateral_epicondyle_stress", "Lateral epicondyle")]:
+            st = res_trad.get(k, 0)
+            sd = res_dev.get(k, 0)
+            if st > 0.1:
+                red = (1 - sd / st) * 100
+                print(f"  {label:28s}  Trad: {st/1000:6.1f} kPa  Device: {sd/1000:6.1f} kPa  (-{red:.0f}%)")
         print()
 
     # Figures
