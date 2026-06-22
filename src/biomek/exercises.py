@@ -18,6 +18,10 @@ class Exercise:
     grip_fmax: float = 600.0
     grip_pattern: str = "neutral"    # "supinated" | "pronated" | "neutral"
 
+    @property
+    def muscles_involved(self) -> list:
+        return self.muscles
+
 
 def load_exercises(cfg: dict | None = None) -> list[Exercise]:
     """Build Exercise objects from config."""

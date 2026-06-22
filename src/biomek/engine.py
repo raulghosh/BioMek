@@ -6,7 +6,7 @@ Minimizes sum(a_i²) subject to torque balance — same approach as biomek_sim.p
 import numpy as np
 from .anatomy import (JOINT_REF_AREA, GRIP_FMAX,
                        MEDIAL_EPICONDYLE_CSA, LATERAL_EPICONDYLE_CSA,
-                       GRIP_PATTERN_EXTENSOR)
+                       GRIP_PATTERN_EXTENSOR, WRIST_MUSCLES, wrist_moment_arms)
 from .equipment import EquipmentModel
 from .exercises import Exercise
 
@@ -69,10 +69,129 @@ def _solve_static_optimization(tau_required: float,
     return acts, forces
 
 
+def _wrist_coupling_torque(grip_force: float, grip_pattern: str) -> tuple[dict, float]:
+    """
+    Distribute grip_force across wrist muscles (proportional to Fmax),
+    then compute their net elbow flexion torque via cross-joint moment arms.
+
+    Returns (wrist_forces dict, tau_coupling_Nm).
+    Traditional handle: grip_force = full cable fraction → positive tau → BIC/BRA need less.
+    BioMek: grip_force ≈ 0 → tau_coupling ≈ 0 → BIC/BRA must do all the work.
+    """
+    wma = wrist_moment_arms(grip_pattern)
+
+    # Flexors (FCR, FCU, PL, PT) share grip force proportional to Fmax
+    flexors = [m for m, v in wma.items() if v["wrist_ma"] >= 0]
+    fmax_flex_total = sum(WRIST_MUSCLES[m]["max_isometric_force"] for m in flexors)
+
+    # Extensors co-contract at the grip-pattern ratio
+    extensor_ratio = GRIP_PATTERN_EXTENSOR.get(grip_pattern, 0.2)
+    extensors = [m for m, v in wma.items() if v["wrist_ma"] < 0]
+    fmax_ext_total = sum(WRIST_MUSCLES[m]["max_isometric_force"] for m in extensors)
+
+    forces = {}
+    for m in flexors:
+        forces[m] = grip_force * (WRIST_MUSCLES[m]["max_isometric_force"] / fmax_flex_total) if fmax_flex_total > 0 else 0.0
+    for m in extensors:
+        forces[m] = grip_force * extensor_ratio * (WRIST_MUSCLES[m]["max_isometric_force"] / fmax_ext_total) if fmax_ext_total > 0 else 0.0
+
+    tau_coupling = sum(forces[m] * wma[m]["elbow_ma"] for m in forces)
+    return forces, tau_coupling
+
+
+def f_cable_for_torque(target_torque_Nm: float, equipment: "EquipmentModel",
+                        exercise: "Exercise", angle_deg: float = 90.0) -> float:
+    """Cable force (N) needed to produce target_torque_Nm at the given joint angle."""
+    L = (equipment.elbow_force_distance() if exercise.joint == "elbow"
+         else equipment.shoulder_force_distance())
+    sin_a = max(np.sin(np.radians(angle_deg)), 1e-6)
+    return target_torque_Nm / (L * sin_a)
+
+
 class BiomechanicsEngine:
 
     def __init__(self, equipment: EquipmentModel):
         self.eq = equipment
+
+    # ── Single-angle query methods ────────────────────────────────
+
+    def compute_muscle_activations(self, f_cable: float,
+                                   angle_rad: float,
+                                   exercise: Exercise) -> dict:
+        """
+        Muscle activations [0,1] at one angle.
+        'forearm_flexors' key = wrist flexor group activation from grip.
+        """
+        L = (self.eq.elbow_force_distance() if exercise.joint == "elbow"
+             else self.eq.shoulder_force_distance())
+        tau = f_cable * L * np.sin(angle_rad)
+        all_ma = exercise.moment_arm_fn(float(angle_rad))
+        ma_i = {m: float(all_ma[m]) for m in exercise.muscles}
+        acts, _ = _solve_static_optimization(
+            tau, ma_i, exercise.muscle_db, exercise.muscles)
+        result = {m: acts.get(m, 0.0) for m in exercise.muscles}
+        grip_force = self.eq.grip_fraction() * f_cable
+        result["forearm_flexors"] = float(np.clip(grip_force / exercise.grip_fmax, 0.0, 1.0))
+        return result
+
+    def compute_joint_stress(self, f_cable: float,
+                             angle_rad: float,
+                             exercise: Exercise) -> dict:
+        """
+        Joint reaction stress (Pa) at one angle.
+        Keys: 'wrist', 'elbow', 'shoulder'.
+        """
+        L = (self.eq.elbow_force_distance() if exercise.joint == "elbow"
+             else self.eq.shoulder_force_distance())
+        tau = f_cable * L * np.sin(angle_rad)
+        all_ma = exercise.moment_arm_fn(float(angle_rad))
+        ma_i = {m: float(all_ma[m]) for m in exercise.muscles}
+        _, forces = _solve_static_optimization(
+            tau, ma_i, exercise.muscle_db, exercise.muscles)
+
+        grip_force = self.eq.grip_fraction() * f_cable
+        tau_w = self.eq.wrist_torque(f_cable)
+        wf = np.sqrt(grip_force**2 + (tau_w / 0.02)**2)
+        wrist_stress = float(wf / JOINT_REF_AREA["wrist"])
+
+        total_mf = sum(forces.values())
+        if exercise.joint == "elbow":
+            ef = np.sqrt(total_mf**2 + (f_cable * np.cos(angle_rad))**2)
+            elbow_stress = float(ef / JOINT_REF_AREA["elbow"])
+        else:
+            elbow_stress = float((f_cable * 0.1) / JOINT_REF_AREA["elbow"])
+
+        shoulder_stress = 0.0
+        if exercise.joint == "shoulder":
+            shoulder_stress = float(total_mf / JOINT_REF_AREA["shoulder"])
+
+        return {"wrist": wrist_stress, "elbow": elbow_stress, "shoulder": shoulder_stress}
+
+    def sweep_rom(self, f_cable: float, exercise: Exercise,
+                  n_points: int = 60) -> dict:
+        """
+        Sweep full ROM. Returns angles_deg, activations (keyed by muscle),
+        and peak_activations.
+        """
+        a_min, a_max = exercise.angle_range_deg
+        angles_deg = np.linspace(a_min, a_max, n_points)
+        angles_rad = np.radians(angles_deg)
+
+        activations = {m: np.zeros(n_points) for m in exercise.muscles}
+
+        for i, a_rad in enumerate(angles_rad):
+            acts = self.compute_muscle_activations(f_cable, a_rad, exercise)
+            for m in exercise.muscles:
+                activations[m][i] = max(0.0, acts.get(m, 0.0))
+
+        peak_activations = {m: float(np.max(activations[m])) for m in exercise.muscles}
+        return {
+            "angles_deg":       angles_deg,
+            "activations":      activations,
+            "peak_activations": peak_activations,
+        }
+
+    # ── Full sweep with all outputs ───────────────────────────────
 
     def run_simulation(self, exercise: Exercise, f_cable: float,
                        n_points: int = 60) -> dict:
@@ -109,16 +228,24 @@ class BiomechanicsEngine:
         # Epicondyle: wrist flexors generate grip force → medial tendon stress
         # Wrist extensors co-contract proportionally → lateral tendon stress
         # The co-contraction ratio depends on grip orientation (supinated/pronated)
-        extensor_ratio = GRIP_PATTERN_EXTENSOR.get(exercise.grip_pattern, 0.2)
-        medial_stress_val  = grip_force / MEDIAL_EPICONDYLE_CSA
-        lateral_stress_val = (grip_force * extensor_ratio) / LATERAL_EPICONDYLE_CSA
+        wrist_forces, tau_coupling = _wrist_coupling_torque(grip_force, exercise.grip_pattern)
+        wma = wrist_moment_arms(exercise.grip_pattern)
+        flexor_muscles  = [m for m, v in wma.items() if v["wrist_ma"] >= 0]
+        extensor_muscles = [m for m, v in wma.items() if v["wrist_ma"] < 0]
+        medial_force  = sum(wrist_forces.get(m, 0.0) for m in flexor_muscles)
+        lateral_force = sum(wrist_forces.get(m, 0.0) for m in extensor_muscles)
+        medial_stress_val  = medial_force  / MEDIAL_EPICONDYLE_CSA
+        lateral_stress_val = lateral_force / LATERAL_EPICONDYLE_CSA
 
         for i, (a_deg, a_rad) in enumerate(zip(angles_deg, angles_rad)):
             tau_ext = f_cable * L * np.sin(a_rad)
+            # Subtract the free elbow torque provided by wrist muscles so the
+            # optimizer only asks BIC/BRA for the remaining deficit.
+            tau_net = max(tau_ext - tau_coupling, 0.0)
             ma_i    = {m: float(all_ma[m][i]) for m in exercise.muscles}
 
             acts, frc = _solve_static_optimization(
-                tau_ext, ma_i, exercise.muscle_db, exercise.muscles)
+                tau_net, ma_i, exercise.muscle_db, exercise.muscles)
 
             for m in exercise.muscles:
                 activations[m][i] = acts.get(m, 0.0) * 100.0   # → %MVC

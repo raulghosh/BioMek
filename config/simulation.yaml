@@ -97,6 +97,58 @@ shoulder_muscles:
 
 grip_fmax: 600.0   # forearm flexor group max force (N)
 
+# ── Wrist muscles — Holzbaur 2005 full upper extremity ───────
+wrist_muscles:
+  FCR:
+    full_name: "Flexor Carpi Radialis"
+    max_isometric_force: 407.0
+    optimal_fiber_length: 0.0628
+    tendon_slack_length: 0.2440
+    pennation_angle: 0.0524
+    tendon_csa_m2: 0.000035
+  FCU:
+    full_name: "Flexor Carpi Ulnaris"
+    max_isometric_force: 476.0
+    optimal_fiber_length: 0.0514
+    tendon_slack_length: 0.2650
+    pennation_angle: 0.0698
+    tendon_csa_m2: 0.000045
+  PL:
+    full_name: "Palmaris Longus"
+    max_isometric_force: 130.0
+    optimal_fiber_length: 0.0640
+    tendon_slack_length: 0.2370
+    pennation_angle: 0.0
+    tendon_csa_m2: 0.000010
+  PT:
+    full_name: "Pronator Teres"
+    max_isometric_force: 538.0
+    optimal_fiber_length: 0.0492
+    tendon_slack_length: 0.0983
+    pennation_angle: 0.1745
+    tendon_csa_m2: 0.000060
+  ECRB:
+    full_name: "Extensor Carpi Radialis Brevis"
+    max_isometric_force: 304.0
+    optimal_fiber_length: 0.0583
+    tendon_slack_length: 0.2220
+    pennation_angle: 0.0524
+    tendon_csa_m2: 0.000035
+  ECRL:
+    full_name: "Extensor Carpi Radialis Longus"
+    max_isometric_force: 304.0
+    optimal_fiber_length: 0.0810
+    tendon_slack_length: 0.2440
+    pennation_angle: 0.0524
+    tendon_csa_m2: 0.000035
+  ECU:
+    full_name: "Extensor Carpi Ulnaris"
+    max_isometric_force: 212.0
+    optimal_fiber_length: 0.0620
+    tendon_slack_length: 0.2650
+    pennation_angle: 0.0524
+    tendon_csa_m2: 0.000030
+
 # ── Epicondyle tendon model ───────────────────────────────────
 # Medial epicondyle: common flexor-pronator tendon (FCR, FCU, PL, PT origin)
 # Lateral epicondyle: ECRB / common extensor tendon origin

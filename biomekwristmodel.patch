@@ -1,0 +1,340 @@
+diff --git a/config/simulation.yaml b/config/simulation.yaml
+index 04b8642..80717ce 100644
+--- a/config/simulation.yaml
++++ b/config/simulation.yaml
+@@ -97,6 +97,58 @@ shoulder_muscles:
+ 
+ grip_fmax: 600.0   # forearm flexor group max force (N)
+ 
++# ── Wrist muscles — Holzbaur 2005 full upper extremity ───────
++wrist_muscles:
++  FCR:
++    full_name: "Flexor Carpi Radialis"
++    max_isometric_force: 407.0
++    optimal_fiber_length: 0.0628
++    tendon_slack_length: 0.2440
++    pennation_angle: 0.0524
++    tendon_csa_m2: 0.000035
++  FCU:
++    full_name: "Flexor Carpi Ulnaris"
++    max_isometric_force: 476.0
++    optimal_fiber_length: 0.0514
++    tendon_slack_length: 0.2650
++    pennation_angle: 0.0698
++    tendon_csa_m2: 0.000045
++  PL:
++    full_name: "Palmaris Longus"
++    max_isometric_force: 130.0
++    optimal_fiber_length: 0.0640
++    tendon_slack_length: 0.2370
++    pennation_angle: 0.0
++    tendon_csa_m2: 0.000010
++  PT:
++    full_name: "Pronator Teres"
++    max_isometric_force: 538.0
++    optimal_fiber_length: 0.0492
++    tendon_slack_length: 0.0983
++    pennation_angle: 0.1745
++    tendon_csa_m2: 0.000060
++  ECRB:
++    full_name: "Extensor Carpi Radialis Brevis"
++    max_isometric_force: 304.0
++    optimal_fiber_length: 0.0583
++    tendon_slack_length: 0.2220
++    pennation_angle: 0.0524
++    tendon_csa_m2: 0.000035
++  ECRL:
++    full_name: "Extensor Carpi Radialis Longus"
++    max_isometric_force: 304.0
++    optimal_fiber_length: 0.0810
++    tendon_slack_length: 0.2440
++    pennation_angle: 0.0524
++    tendon_csa_m2: 0.000035
++  ECU:
++    full_name: "Extensor Carpi Ulnaris"
++    max_isometric_force: 212.0
++    optimal_fiber_length: 0.0620
++    tendon_slack_length: 0.2650
++    pennation_angle: 0.0524
++    tendon_csa_m2: 0.000030
++
+ # ── Epicondyle tendon model ───────────────────────────────────
+ # Medial epicondyle: common flexor-pronator tendon (FCR, FCU, PL, PT origin)
+ # Lateral epicondyle: ECRB / common extensor tendon origin
+diff --git a/requirements.txt b/requirements.txt
+index 60efda7..af5e99a 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,4 +1,5 @@
+ numpy>=1.24
+ matplotlib>=3.7
++scipy>=1.11
+ pyyaml>=6.0
+ pytest>=7.0
+diff --git a/src/biomek/anatomy.py b/src/biomek/anatomy.py
+index 0ca8fa1..2dd1298 100644
+--- a/src/biomek/anatomy.py
++++ b/src/biomek/anatomy.py
+@@ -1,11 +1,12 @@
+ """
+ Muscle parameters (arm26.osim / Holzbaur 2005), Thelen2003 force-length,
+-and Holzbaur 2005 moment-arm polynomial fits.
++and Holzbaur 2005 moment-arm data fitted with natural cubic splines.
+ """
+ 
+ import numpy as np
+ import yaml
+ from pathlib import Path
++from scipy.interpolate import CubicSpline
+ 
+ _CONFIG_PATH = Path(__file__).parents[2] / "config" / "simulation.yaml"
+ 
+@@ -16,17 +17,16 @@ def load_config(path: Path = _CONFIG_PATH) -> dict:
+ 
+ 
+ _cfg = load_config()
+-ELBOW_MUSCLES: dict   = _cfg["elbow_muscles"]
++ELBOW_MUSCLES: dict    = _cfg["elbow_muscles"]
+ SHOULDER_MUSCLES: dict = _cfg["shoulder_muscles"]
++WRIST_MUSCLES: dict    = _cfg["wrist_muscles"]
+ SEGMENTS: dict         = _cfg["segments"]
+ JOINT_REF_AREA: dict   = _cfg["joint_ref_areas"]
+ GRIP_FMAX: float       = _cfg["grip_fmax"]
+ 
+-# Epicondyle tendon cross-sectional areas (m²) — from anatomical cadaveric studies
+ MEDIAL_EPICONDYLE_CSA:  float = _cfg["epicondyles"]["medial"]["tendon_csa_m2"]
+ LATERAL_EPICONDYLE_CSA: float = _cfg["epicondyles"]["lateral"]["tendon_csa_m2"]
+ 
+-# ECRB extensor co-contraction fraction relative to grip force, per grip orientation
+ GRIP_PATTERN_EXTENSOR: dict = {
+     p: v["extensor_cocontraction"]
+     for p, v in _cfg["grip_patterns"].items()
+@@ -37,6 +37,30 @@ EXTENSORS = ["TRIlong", "TRIlat",   "TRImed"]
+ ABDUCTORS = ["DELT_lat", "DELT_ant", "SUPSP"]
+ 
+ 
++# ── arm26.osim moment-arm control points (virtual-work, Holzbaur 2005 Fig 4) ──
++# Elbow angle (deg) → moment arm (m); positive = flexion, negative = extension
++_E_DEG = np.array([0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150], dtype=float)
++_E_RAD = np.radians(_E_DEG)
++
++_BIClong_MA  = np.array([0.0102, 0.0188, 0.0270, 0.0343, 0.0406,
++                          0.0455, 0.0481, 0.0480, 0.0438, 0.0341, 0.0179])
++# BICshort path slightly shorter; scales at ~87 % of BIClong (Holzbaur 2005)
++_BICshort_MA = _BIClong_MA * 0.875
++_BRA_MA      = np.array([0.0154, 0.0160, 0.0166, 0.0170, 0.0174,
++                          0.0177, 0.0178, 0.0176, 0.0172, 0.0165, 0.0155])
++_TRIlong_MA  = np.array([-0.0211, -0.0220, -0.0230, -0.0238, -0.0243,
++                          -0.0248, -0.0251, -0.0250, -0.0246, -0.0239, -0.0228])
++_TRIlat_MA   = np.array([-0.0177, -0.0185, -0.0193, -0.0200, -0.0206,
++                          -0.0210, -0.0213, -0.0213, -0.0210, -0.0204, -0.0194])
++
++# Natural cubic splines (bc_type='not-a-knot' is scipy default)
++_cs_BIClong  = CubicSpline(_E_RAD, _BIClong_MA)
++_cs_BICshort = CubicSpline(_E_RAD, _BICshort_MA)
++_cs_BRA      = CubicSpline(_E_RAD, _BRA_MA)
++_cs_TRIlong  = CubicSpline(_E_RAD, _TRIlong_MA)
++_cs_TRIlat   = CubicSpline(_E_RAD, _TRIlat_MA)
++
++
+ # ── Thelen2003 force-length ───────────────────────────────────
+ 
+ def thelen_active_force_length(norm_fiber_length: float, gamma: float = 0.5) -> float:
+@@ -57,26 +81,22 @@ def thelen_passive_force_length(norm_fiber_length, kPE: float = 4.0, e0: float =
+     return result
+ 
+ 
+-# ── Holzbaur 2005 moment-arm fits ────────────────────────────
++# ── Moment-arm functions ──────────────────────────────────────
+ 
+ def elbow_moment_arms(angles_rad) -> dict:
+     """
+     Moment arms (m) for elbow muscles vs elbow flexion angle.
+-    Polynomial fits to Holzbaur et al. 2005, Fig. 4.
++    Natural cubic splines fitted to Holzbaur et al. 2005 / arm26.osim data.
+     Positive = flexion; negative = extension.
+     """
+-    a = np.asarray(angles_rad)
++    a = np.asarray(angles_rad, dtype=float)
+     return {
+-        # Biceps long head: peaks ~4.8 cm near 80° (1.4 rad)
+-        "BIClong":  0.048 * np.sin(0.88*a + 0.25) * np.clip(1.0 - 0.12*(a-1.4)**2, 0.55, 1.0),
+-        # Biceps short head: slightly smaller
+-        "BICshort": 0.042 * np.sin(0.88*a + 0.25) * np.clip(1.0 - 0.12*(a-1.4)**2, 0.55, 1.0),
+-        # Brachialis: broad peak ~1.8 cm
+-        "BRA":      0.018 * (1.0 + 0.35 * np.sin(a * 0.9 + 0.1)),
+-        # Triceps (extensors — negative)
+-        "TRIlong":  -0.024 * (1.0 + 0.18 * np.sin(a * 0.8)),
+-        "TRIlat":   -0.021 * (1.0 + 0.15 * np.sin(a * 0.8)),
+-        "TRImed":   -0.021 * (1.0 + 0.15 * np.sin(a * 0.8)),
++        "BIClong":  _cs_BIClong(a),
++        "BICshort": _cs_BICshort(a),
++        "BRA":      _cs_BRA(a),
++        "TRIlong":  _cs_TRIlong(a),
++        "TRIlat":   _cs_TRIlat(a),
++        "TRImed":   _cs_TRIlat(a),   # TRImed ≈ TRIlat per Holzbaur 2005
+     }
+ 
+ 
+@@ -85,9 +105,54 @@ def shoulder_moment_arms(angles_rad) -> dict:
+     Moment arms (m) for shoulder abduction muscles vs abduction angle.
+     Holzbaur 2005 approximations.
+     """
+-    a = np.asarray(angles_rad)
++    a = np.asarray(angles_rad, dtype=float)
+     return {
+         "DELT_lat": 0.025 * (1.0 + 1.8 * np.sin(a)),
+         "DELT_ant": 0.020 * (1.0 + 1.2 * np.sin(a)),
+         "SUPSP":    0.012 * (1.0 + 0.6 * np.sin(a)),
+     }
++
++
++def wrist_moment_arms(grip_pattern: str = "neutral") -> dict:
++    """
++    Wrist muscle moment arms (m) at the wrist joint.
++    Constant approximations from Holzbaur 2005 Table 2.
++    Positive = flexion, negative = extension.
++    elbow_ma is the coupling contribution to elbow flexion torque.
++    """
++    return {
++        "FCR":  {"wrist_ma": 0.020, "elbow_ma":  0.008},
++        "FCU":  {"wrist_ma": 0.020, "elbow_ma":  0.000},
++        "PL":   {"wrist_ma": 0.015, "elbow_ma":  0.000},
++        "PT":   {"wrist_ma": 0.000, "elbow_ma":  0.014},
++        "ECRB": {"wrist_ma":-0.015, "elbow_ma":  0.000},
++        "ECRL": {"wrist_ma":-0.018, "elbow_ma":  0.009},
++        "ECU":  {"wrist_ma":-0.012, "elbow_ma":  0.000},
++    }
++
++
++# ── Fiber length integration (Thelen 2003 via virtual work) ──
++
++def normalized_fiber_lengths(angles_rad, moment_arm_fn, muscle_db, muscles) -> dict:
++    """
++    Normalized fiber lengths l / l_opt at each angle.
++    Uses: dl_MT = -r dθ  (virtual work), with reference state at θ = π/2.
++    """
++    from scipy.integrate import cumulative_trapezoid
++    theta_ref = np.pi / 2
++    all_ma = moment_arm_fn(angles_rad)
++    result = {}
++    for m in muscles:
++        p = muscle_db[m]
++        l_ts    = p["tendon_slack_length"]
++        l_opt   = p["optimal_fiber_length"]
++        cos_pen = np.cos(p["pennation_angle"])
++        l_mt_ref = l_ts + l_opt * cos_pen
++        r = np.asarray(all_ma[m], dtype=float)
++        integral_full     = cumulative_trapezoid(r, angles_rad, initial=0.0)
++        idx_ref           = int(np.argmin(np.abs(angles_rad - theta_ref)))
++        integral_from_ref = integral_full - integral_full[idx_ref]
++        l_mt    = l_mt_ref - integral_from_ref
++        l_fiber = np.clip((l_mt - l_ts) / cos_pen, 1e-4, None)
++        result[m] = l_fiber / l_opt
++    return result
+diff --git a/src/biomek/engine.py b/src/biomek/engine.py
+index eefd6db..cd1c655 100644
+--- a/src/biomek/engine.py
++++ b/src/biomek/engine.py
+@@ -74,6 +74,86 @@ class BiomechanicsEngine:
+     def __init__(self, equipment: EquipmentModel):
+         self.eq = equipment
+ 
++    # ── Single-angle query methods ────────────────────────────────
++
++    def compute_muscle_activations(self, f_cable: float,
++                                   angle_rad: float,
++                                   exercise: Exercise) -> dict:
++        """
++        Muscle activations [0,1] at one angle.
++        'forearm_flexors' key = wrist flexor group activation from grip.
++        """
++        L = (self.eq.elbow_force_distance() if exercise.joint == "elbow"
++             else self.eq.shoulder_force_distance())
++        tau = f_cable * L * np.sin(angle_rad)
++        all_ma = exercise.moment_arm_fn(float(angle_rad))
++        ma_i = {m: float(all_ma[m]) for m in exercise.muscles}
++        acts, _ = _solve_static_optimization(
++            tau, ma_i, exercise.muscle_db, exercise.muscles)
++        result = {m: acts.get(m, 0.0) for m in exercise.muscles}
++        grip_force = self.eq.grip_fraction() * f_cable
++        result["forearm_flexors"] = float(np.clip(grip_force / exercise.grip_fmax, 0.0, 1.0))
++        return result
++
++    def compute_joint_stress(self, f_cable: float,
++                             angle_rad: float,
++                             exercise: Exercise) -> dict:
++        """
++        Joint reaction stress (Pa) at one angle.
++        Keys: 'wrist', 'elbow', 'shoulder'.
++        """
++        L = (self.eq.elbow_force_distance() if exercise.joint == "elbow"
++             else self.eq.shoulder_force_distance())
++        tau = f_cable * L * np.sin(angle_rad)
++        all_ma = exercise.moment_arm_fn(float(angle_rad))
++        ma_i = {m: float(all_ma[m]) for m in exercise.muscles}
++        _, forces = _solve_static_optimization(
++            tau, ma_i, exercise.muscle_db, exercise.muscles)
++
++        grip_force = self.eq.grip_fraction() * f_cable
++        tau_w = self.eq.wrist_torque(f_cable)
++        wf = np.sqrt(grip_force**2 + (tau_w / 0.02)**2)
++        wrist_stress = float(wf / JOINT_REF_AREA["wrist"])
++
++        total_mf = sum(forces.values())
++        if exercise.joint == "elbow":
++            ef = np.sqrt(total_mf**2 + (f_cable * np.cos(angle_rad))**2)
++            elbow_stress = float(ef / JOINT_REF_AREA["elbow"])
++        else:
++            elbow_stress = float((f_cable * 0.1) / JOINT_REF_AREA["elbow"])
++
++        shoulder_stress = 0.0
++        if exercise.joint == "shoulder":
++            shoulder_stress = float(total_mf / JOINT_REF_AREA["shoulder"])
++
++        return {"wrist": wrist_stress, "elbow": elbow_stress, "shoulder": shoulder_stress}
++
++    def sweep_rom(self, f_cable: float, exercise: Exercise,
++                  n_points: int = 60) -> dict:
++        """
++        Sweep full ROM. Returns angles_deg, activations (keyed by muscle),
++        and peak_activations.
++        """
++        a_min, a_max = exercise.angle_range_deg
++        angles_deg = np.linspace(a_min, a_max, n_points)
++        angles_rad = np.radians(angles_deg)
++
++        activations = {m: np.zeros(n_points) for m in exercise.muscles}
++
++        for i, a_rad in enumerate(angles_rad):
++            acts = self.compute_muscle_activations(f_cable, a_rad, exercise)
++            for m in exercise.muscles:
++                activations[m][i] = max(0.0, acts.get(m, 0.0))
++
++        peak_activations = {m: float(np.max(activations[m])) for m in exercise.muscles}
++        return {
++            "angles_deg":       angles_deg,
++            "activations":      activations,
++            "peak_activations": peak_activations,
++        }
++
++    # ── Full sweep with all outputs ───────────────────────────────
++
+     def run_simulation(self, exercise: Exercise, f_cable: float,
+                        n_points: int = 60) -> dict:
+         """
+diff --git a/src/biomek/exercises.py b/src/biomek/exercises.py
+index e3d2fb1..304ff3f 100644
+--- a/src/biomek/exercises.py
++++ b/src/biomek/exercises.py
+@@ -18,6 +18,10 @@ class Exercise:
+     grip_fmax: float = 600.0
+     grip_pattern: str = "neutral"    # "supinated" | "pronated" | "neutral"
+ 
++    @property
++    def muscles_involved(self) -> list:
++        return self.muscles
++
+ 
+ def load_exercises(cfg: dict | None = None) -> list[Exercise]:
+     """Build Exercise objects from config."""

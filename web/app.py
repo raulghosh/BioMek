@@ -17,7 +17,7 @@ import numpy as np
 from biomek.anatomy import load_config, ELBOW_MUSCLES, SHOULDER_MUSCLES, elbow_moment_arms, shoulder_moment_arms
 from biomek.equipment import EquipmentModel
 from biomek.exercises import Exercise
-from biomek.engine import BiomechanicsEngine
+from biomek.engine import BiomechanicsEngine, f_cable_for_torque
 
 app = Flask(__name__)
 
@@ -63,8 +63,14 @@ def _run_simulation(params: dict) -> dict:
 
     results = []
     for ex in exercises:
+        # Equal-torque: BioMek needs more cable force to match traditional's joint torque
+        L_trad = (eq_trad.elbow_force_distance() if ex.joint == "elbow"
+                  else eq_trad.shoulder_force_distance())
+        target_torque = f_cable * L_trad
+        f_dev = f_cable_for_torque(target_torque, eq_dev, ex)
+
         res_trad = BiomechanicsEngine(eq_trad).run_simulation(ex, f_cable, n_points)
-        res_dev  = BiomechanicsEngine(eq_dev).run_simulation(ex, f_cable, n_points)
+        res_dev  = BiomechanicsEngine(eq_dev).run_simulation(ex, f_dev, n_points)
 
         def serialise(r):
             acts = {m: r["activations"][m].tolist() for m in ex.muscles}
@@ -101,6 +107,7 @@ def _run_simulation(params: dict) -> dict:
                 "joint":   ex.joint,
                 "muscles": ex.muscles,
             },
+            "f_dev_lbs":   round(f_dev / LBS_TO_N, 1),
             "traditional": serialise(res_trad),
             "biomek":      serialise(res_dev),
         })
