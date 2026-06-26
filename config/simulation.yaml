@@ -236,14 +236,14 @@ exercises:
     grip_pattern: pronated
     note: "Shoulder flexion. Anterior deltoid prime mover."
 
-  lat_pulldown:
-    name: "Lat Pulldown"
+  lat_pullover:
+    name: "Lat Pullover"
     joint: shoulder
     movement: shoulder_extension
-    angle_range_deg: [10, 90]
+    angle_range_deg: [30, 160]
     muscles: ["Latissimus_Dorsi", "Teres_Major", "DELT_post"]
     grip_pattern: pronated
-    note: "Shoulder extension + adduction. Lats from Rajagopal 2016 full-body model."
+    note: "Straight-arm shoulder extension through a large overhead arc. Lats from Rajagopal 2016 full-body model."
 
   triceps_pushdown:
     name: "Triceps Pushdown"

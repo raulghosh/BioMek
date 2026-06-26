@@ -68,9 +68,9 @@ const DEFAULTS = {
       grip_fmax: 600, angle_range_deg: [5, 90], grip_pattern: "pronated",
       muscles: ["DELT_ant", "DELT_lat", "SUPSP"],
     },
-    lat_pulldown: {
-      name: "Lat Pulldown", joint: "shoulder", movement: "shoulder_extension",
-      grip_fmax: 600, angle_range_deg: [10, 90], grip_pattern: "pronated",
+    lat_pullover: {
+      name: "Lat Pullover", joint: "shoulder", movement: "shoulder_extension",
+      grip_fmax: 600, angle_range_deg: [30, 160], grip_pattern: "pronated",
       muscles: ["Latissimus_Dorsi", "Teres_Major", "DELT_post"],
     },
     triceps_pushdown: {
