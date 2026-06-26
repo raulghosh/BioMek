@@ -14,9 +14,9 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from flask import Flask, render_template, request, jsonify
 import numpy as np
 
-from biomek.anatomy import load_config, ELBOW_MUSCLES, SHOULDER_MUSCLES, elbow_moment_arms, shoulder_moment_arms
+from biomek.anatomy import load_config, MUSCLE_DB
 from biomek.equipment import EquipmentModel
-from biomek.exercises import Exercise
+from biomek.exercises import Exercise, MOMENT_ARM_FNS
 from biomek.engine import BiomechanicsEngine, f_cable_for_torque
 
 app = Flask(__name__)
@@ -39,23 +39,20 @@ def _run_simulation(params: dict) -> dict:
 
     exercises = []
     for key, ex_cfg in exercises_raw.items():
-        joint = ex_cfg["joint"]
-        if joint == "elbow":
-            moment_fn = elbow_moment_arms
-            muscle_db = ELBOW_MUSCLES
-        else:
-            moment_fn = shoulder_moment_arms
-            muscle_db = SHOULDER_MUSCLES
+        joint    = ex_cfg["joint"]
+        movement = ex_cfg.get("movement",
+                              "elbow" if joint == "elbow" else "shoulder_abduction")
 
         exercises.append(Exercise(
             name=ex_cfg["name"],
             joint=joint,
             angle_range_deg=tuple(ex_cfg["angle_range_deg"]),
             muscles=list(ex_cfg["muscles"]),
-            moment_arm_fn=moment_fn,
-            muscle_db=muscle_db,
+            moment_arm_fn=MOMENT_ARM_FNS[movement],
+            muscle_db=MUSCLE_DB,
             grip_fmax=float(ex_cfg.get("grip_fmax", 600.0)),
             grip_pattern=ex_cfg.get("grip_pattern", "neutral"),
+            direction=int(ex_cfg.get("direction", 1)),
         ))
 
     eq_trad = EquipmentModel("traditional")

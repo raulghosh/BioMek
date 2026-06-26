@@ -19,7 +19,10 @@ const MUSCLE_META = {
   TRImed:    { label: "Triceps Medial Head",  color: "#1abc9c", role: "extensor" },
   DELT_lat:  { label: "Deltoid Lateral",      color: "#3498db", role: "abductor" },
   DELT_ant:  { label: "Deltoid Anterior",     color: "#2980b9", role: "abductor" },
+  DELT_post: { label: "Deltoid Posterior",    color: "#16a085", role: "extensor" },
   SUPSP:     { label: "Supraspinatus",        color: "#8e44ad", role: "abductor" },
+  Latissimus_Dorsi: { label: "Latissimus Dorsi", color: "#27ae60", role: "adductor" },
+  Teres_Major:      { label: "Teres Major",      color: "#2ecc71", role: "adductor" },
   grip:      { label: "Grip (Forearm Flex.)", color: "#95a5a6", role: "grip"     },
 };
 
@@ -56,9 +59,29 @@ const DEFAULTS = {
       muscles: ["BIClong", "BICshort", "BRA", "TRIlong", "TRIlat", "TRImed"],
     },
     lateral_raise: {
-      name: "Lateral Raise", joint: "shoulder", grip_fmax: 600,
-      angle_range_deg: [5, 90], grip_pattern: "neutral",
+      name: "Lateral Raise", joint: "shoulder", movement: "shoulder_abduction",
+      grip_fmax: 600, angle_range_deg: [5, 90], grip_pattern: "neutral",
       muscles: ["DELT_lat", "DELT_ant", "SUPSP"],
+    },
+    front_raise: {
+      name: "Front Raise", joint: "shoulder", movement: "shoulder_flexion",
+      grip_fmax: 600, angle_range_deg: [5, 90], grip_pattern: "pronated",
+      muscles: ["DELT_ant", "DELT_lat", "SUPSP"],
+    },
+    lat_pulldown: {
+      name: "Lat Pulldown", joint: "shoulder", movement: "shoulder_extension",
+      grip_fmax: 600, angle_range_deg: [10, 90], grip_pattern: "pronated",
+      muscles: ["Latissimus_Dorsi", "Teres_Major", "DELT_post"],
+    },
+    triceps_pushdown: {
+      name: "Triceps Pushdown", joint: "elbow", movement: "elbow", direction: -1,
+      grip_fmax: 600, angle_range_deg: [10, 140], grip_pattern: "pronated",
+      muscles: ["TRIlong", "TRIlat", "TRImed"],
+    },
+    reverse_triceps_extension: {
+      name: "Reverse-Grip Triceps Extension", joint: "elbow", movement: "elbow", direction: -1,
+      grip_fmax: 600, angle_range_deg: [10, 140], grip_pattern: "supinated",
+      muscles: ["TRIlong", "TRIlat", "TRImed"],
     },
   }
 };
@@ -82,9 +105,11 @@ function fmtPct(v) {
 }
 
 function activeMuscles(key) {
+  const dir = state.exercises[key].direction || 1;
   return state.exercises[key].muscles.filter(m => {
     const r = MUSCLE_META[m]?.role;
-    return r === "flexor" || r === "abductor";
+    return dir < 0 ? (r === "extensor")
+                   : (r === "flexor" || r === "abductor" || r === "adductor");
   });
 }
 
@@ -131,7 +156,8 @@ function renderMuscleInfo() {
 const ARM26_FMAX = {
   BIClong:624.3, BICshort:435.56, BRA:987.26,
   TRIlong:798.52, TRIlat:624.3, TRImed:624.3,
-  DELT_lat:1142.6, DELT_ant:1218.9, SUPSP:487.8
+  DELT_lat:1142.6, DELT_ant:1218.9, DELT_post:259.9, SUPSP:487.8,
+  Latissimus_Dorsi:1129.7, Teres_Major:425.4
 };
 function _fmax(m) { return ARM26_FMAX[m] ? ARM26_FMAX[m].toFixed(0) : "—"; }
 
@@ -263,7 +289,9 @@ function renderResults(data) {
 
     const bm = res.biomek, tr = res.traditional;
     const allMuscles = res.exercise.muscles;
-    const primaryMuscles = allMuscles.filter(m => MUSCLE_META[m]?.role !== "extensor");
+    // Prime movers = muscles the optimizer actually activates in this exercise
+    const primaryMuscles = allMuscles.filter(m =>
+      Math.max(bm.peak_activations[m] || 0, tr.peak_activations[m] || 0) > 0.5);
     const displayMuscles = [...primaryMuscles, "grip"];
     const angles = bm.angles_deg;
 
@@ -409,6 +437,8 @@ function buildPayload() {
     const ex = state.exercises[key];
     exercises[key] = {
       name: ex.name, joint: ex.joint,
+      movement: ex.movement,
+      direction: ex.direction || 1,
       angle_range_deg: ex.angle_range_deg,
       muscles: ex.muscles,
       grip_fmax: ex.grip_fmax || 600,

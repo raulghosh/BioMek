@@ -122,13 +122,19 @@ f_biomek = τ_target / (L_biomek × sin θ)
 
 ## Exercises
 
-| Exercise | Joint | Muscles | Grip |
-|---|---|---|---|
-| Standard Curl | Elbow | BIClong, BICshort, BRA, TRIlong, TRIlat, TRImed | Supinated |
-| Reverse Curl | Elbow | BIClong, BICshort, BRA, TRIlong, TRIlat, TRImed | Pronated |
-| Lateral Raise | Shoulder | DELT_lat, DELT_ant, SUPSP | Neutral |
+| Exercise | Joint | Movement | Prime movers | Grip |
+|---|---|---|---|---|
+| Standard Curl | Elbow | Flexion | BIClong, BICshort, BRA | Supinated |
+| Reverse Curl | Elbow | Flexion | BIClong, BICshort, BRA | Pronated |
+| Triceps Pushdown | Elbow | Extension | TRIlong, TRIlat, TRImed | Pronated |
+| Reverse-Grip Triceps Extension | Elbow | Extension | TRIlong, TRIlat, TRImed | Supinated |
+| Lateral Raise | Shoulder | Abduction | DELT_lat, DELT_ant, SUPSP | Neutral |
+| Front Raise | Shoulder | Flexion | DELT_ant, DELT_lat, SUPSP | Pronated |
+| Lat Pulldown | Shoulder | Extension/adduction | Latissimus_Dorsi, Teres_Major, DELT_post | Pronated |
 
-Additional exercises can be added in `config/simulation.yaml` without changing any Python code.
+Lat pulldown muscle parameters come from the Rajagopal et al. 2016 full-body OpenSim model (latissimus dorsi and teres major are not present in arm26). Extension exercises (triceps) are flagged with `direction: -1` in config so the optimizer solves the extension torque.
+
+Additional exercises can be added in `config/simulation.yaml` without changing any Python code — set `joint`, `movement`, `direction`, `muscles`, and `grip_pattern`.
 
 ---
 

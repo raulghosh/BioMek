@@ -19,7 +19,11 @@ def load_config(path: Path = _CONFIG_PATH) -> dict:
 _cfg = load_config()
 ELBOW_MUSCLES: dict    = _cfg["elbow_muscles"]
 SHOULDER_MUSCLES: dict = _cfg["shoulder_muscles"]
+BACK_MUSCLES: dict     = _cfg.get("back_muscles", {})
 WRIST_MUSCLES: dict    = _cfg["wrist_muscles"]
+
+# Merged lookup so any exercise can reference any muscle by name
+MUSCLE_DB: dict = {**ELBOW_MUSCLES, **SHOULDER_MUSCLES, **BACK_MUSCLES}
 SEGMENTS: dict         = _cfg["segments"]
 JOINT_REF_AREA: dict   = _cfg["joint_ref_areas"]
 GRIP_FMAX: float       = _cfg["grip_fmax"]
@@ -110,6 +114,33 @@ def shoulder_moment_arms(angles_rad) -> dict:
         "DELT_lat": 0.025 * (1.0 + 1.8 * np.sin(a)),
         "DELT_ant": 0.020 * (1.0 + 1.2 * np.sin(a)),
         "SUPSP":    0.012 * (1.0 + 0.6 * np.sin(a)),
+    }
+
+
+def shoulder_flexion_moment_arms(angles_rad) -> dict:
+    """
+    Moment arms (m) for shoulder flexion (front raise) vs flexion angle.
+    Anterior deltoid is the prime mover. Holzbaur 2005 approximations.
+    """
+    a = np.asarray(angles_rad, dtype=float)
+    return {
+        "DELT_ant": 0.022 * (1.0 + 1.4 * np.sin(a)),
+        "DELT_lat": 0.012 * (1.0 + 0.8 * np.sin(a)),
+        "SUPSP":    0.006 * (1.0 + 0.4 * np.sin(a)),
+    }
+
+
+def shoulder_extension_moment_arms(angles_rad) -> dict:
+    """
+    Moment arms (m) for shoulder extension + adduction (lat pulldown).
+    Latissimus dorsi and teres major are the prime movers; positive MA =
+    pull-down (extension) torque. Approximated from Rajagopal 2016.
+    """
+    a = np.asarray(angles_rad, dtype=float)
+    return {
+        "Latissimus_Dorsi": 0.040 * (1.0 + 0.6 * np.sin(a)),
+        "Teres_Major":      0.030 * (1.0 + 0.5 * np.sin(a)),
+        "DELT_post":        0.020 * (1.0 + 0.4 * np.sin(a)),
     }
 
 

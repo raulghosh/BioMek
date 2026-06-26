@@ -51,7 +51,10 @@ def main():
         res_dev  = BiomechanicsEngine(eq_dev).run_simulation(ex, f_dev, n_pts)
         all_results.append((ex, res_dev, res_trad))
 
-        active = [m for m in ex.muscles if ex.muscle_db[m]["role"] != "extensor"]
+        # Target/prime-mover muscles = those the optimizer actually activates
+        active = [m for m in ex.muscles
+                  if max(res_trad["peak_activations"].get(m, 0),
+                         res_dev["peak_activations"].get(m, 0)) > 0.5]
         for m in active + ["grip"]:
             name = m if m == "grip" else ex.muscle_db[m]["full_name"]
             pt = res_trad["peak_activations"].get(m, 0)

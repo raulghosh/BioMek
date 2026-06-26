@@ -124,7 +124,7 @@ class BiomechanicsEngine:
         """
         L = (self.eq.elbow_force_distance() if exercise.joint == "elbow"
              else self.eq.shoulder_force_distance())
-        tau = f_cable * L * np.sin(angle_rad)
+        tau = exercise.direction * f_cable * L * np.sin(angle_rad)
         all_ma = exercise.moment_arm_fn(float(angle_rad))
         ma_i = {m: float(all_ma[m]) for m in exercise.muscles}
         acts, _ = _solve_static_optimization(
@@ -143,7 +143,7 @@ class BiomechanicsEngine:
         """
         L = (self.eq.elbow_force_distance() if exercise.joint == "elbow"
              else self.eq.shoulder_force_distance())
-        tau = f_cable * L * np.sin(angle_rad)
+        tau = exercise.direction * f_cable * L * np.sin(angle_rad)
         all_ma = exercise.moment_arm_fn(float(angle_rad))
         ma_i = {m: float(all_ma[m]) for m in exercise.muscles}
         _, forces = _solve_static_optimization(
@@ -237,11 +237,16 @@ class BiomechanicsEngine:
         medial_stress_val  = medial_force  / MEDIAL_EPICONDYLE_CSA
         lateral_stress_val = lateral_force / LATERAL_EPICONDYLE_CSA
 
+        # Wrist→elbow coupling only acts on elbow exercises (it is an elbow
+        # flexion torque). For extension exercises it opposes the prime movers.
+        coupling = tau_coupling if exercise.joint == "elbow" else 0.0
+
         for i, (a_deg, a_rad) in enumerate(zip(angles_deg, angles_rad)):
-            tau_ext = f_cable * L * np.sin(a_rad)
-            # Subtract the free elbow torque provided by wrist muscles so the
-            # optimizer only asks BIC/BRA for the remaining deficit.
-            tau_net = max(tau_ext - tau_coupling, 0.0)
+            # Signed required muscle torque: +1 flexion/abduction, -1 extension.
+            tau_ext = exercise.direction * f_cable * L * np.sin(a_rad)
+            # Subtract the free elbow flexion torque provided by wrist muscles
+            # so the prime movers only cover the remaining deficit.
+            tau_net = tau_ext - coupling
             ma_i    = {m: float(all_ma[m][i]) for m in exercise.muscles}
 
             acts, frc = _solve_static_optimization(

@@ -94,6 +94,33 @@ shoulder_muscles:
     tendon_slack_length: 0.0400
     pennation_angle: 0.1222   # 7°
     role: abductor
+  DELT_post:
+    full_name: "Deltoid Posterior"
+    max_isometric_force: 259.9
+    optimal_fiber_length: 0.1367
+    tendon_slack_length: 0.0380
+    pennation_angle: 0.3142   # 18°
+    role: extensor
+
+# ── Back muscles — Rajagopal 2016 full-body / Holzbaur 2005 ────
+# Latissimus dorsi and teres major: prime movers in the lat pulldown
+# (shoulder extension + adduction). Not present in arm26; parameters
+# taken from Rajagopal et al. 2016 full-body OpenSim model.
+back_muscles:
+  Latissimus_Dorsi:
+    full_name: "Latissimus Dorsi"
+    max_isometric_force: 1129.7
+    optimal_fiber_length: 0.2575
+    tendon_slack_length: 0.1267
+    pennation_angle: 0.3316   # 19°
+    role: adductor
+  Teres_Major:
+    full_name: "Teres Major"
+    max_isometric_force: 425.4
+    optimal_fiber_length: 0.1640
+    tendon_slack_length: 0.0710
+    pennation_angle: 0.0
+    role: adductor
 
 grip_fmax: 600.0   # forearm flexor group max force (N)
 
@@ -194,7 +221,46 @@ exercises:
   lateral_raise:
     name: "Lateral Raise"
     joint: shoulder
+    movement: shoulder_abduction
     angle_range_deg: [5, 90]
     muscles: ["DELT_lat", "DELT_ant", "SUPSP"]
     grip_pattern: neutral
     note: "Shoulder abduction. Holzbaur full UE model deltoid + supraspinatus."
+
+  front_raise:
+    name: "Front Raise"
+    joint: shoulder
+    movement: shoulder_flexion
+    angle_range_deg: [5, 90]
+    muscles: ["DELT_ant", "DELT_lat", "SUPSP"]
+    grip_pattern: pronated
+    note: "Shoulder flexion. Anterior deltoid prime mover."
+
+  lat_pulldown:
+    name: "Lat Pulldown"
+    joint: shoulder
+    movement: shoulder_extension
+    angle_range_deg: [10, 90]
+    muscles: ["Latissimus_Dorsi", "Teres_Major", "DELT_post"]
+    grip_pattern: pronated
+    note: "Shoulder extension + adduction. Lats from Rajagopal 2016 full-body model."
+
+  triceps_pushdown:
+    name: "Triceps Pushdown"
+    joint: elbow
+    movement: elbow
+    direction: -1
+    angle_range_deg: [10, 140]
+    muscles: ["TRIlong", "TRIlat", "TRImed"]
+    grip_pattern: pronated
+    note: "Elbow extension. Pronated (overhand) grip — epicondyle follows grip."
+
+  reverse_triceps_extension:
+    name: "Reverse-Grip Triceps Extension"
+    joint: elbow
+    movement: elbow
+    direction: -1
+    angle_range_deg: [10, 140]
+    muscles: ["TRIlong", "TRIlat", "TRImed"]
+    grip_pattern: supinated
+    note: "Elbow extension, supinated grip → medial epicondyle (golfer's) loaded."
